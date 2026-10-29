@@ -12,6 +12,8 @@ a graf za posledních 24 hodin.
 cp .env.example .env
 # vygenerujte token a vložte ho do .env jako API_TOKEN
 openssl rand -hex 32
+# pokud openssl není k dispozici:
+python3 -c "import secrets; print(secrets.token_hex(32))"
 
 docker compose up -d --build
 ```
