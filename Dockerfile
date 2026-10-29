@@ -11,7 +11,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY app ./app
 
-RUN useradd --system --uid 10001 --home-dir /app app \
+RUN useradd --uid 10001 --user-group --home-dir /app --no-create-home app \
     && mkdir -p /data \
     && chown app:app /data
 
