@@ -85,7 +85,7 @@
             <code>POST /api/readings</code> s hlavičkou
             <code>X-API-Token</code> (nebo <code>Authorization: Bearer</code>).
           </p>
-          <pre><code>curl -X POST http://localhost:8000/api/readings \
+          <pre><code>curl -X POST http://localhost:8080/api/readings \
   -H "Content-Type: application/json" \
   -H "X-API-Token: $API_TOKEN" \
   -d '{"value": 0.42}'</code></pre>

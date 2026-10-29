@@ -16,12 +16,12 @@ openssl rand -hex 32
 docker compose up -d --build
 ```
 
-Dashboard běží na <http://localhost:8000> (port lze změnit přes `PORT` v `.env`).
+Dashboard běží na <http://localhost:8080> (port lze změnit přes `PORT` v `.env`).
 
 Zápis dat:
 
 ```bash
-curl -X POST http://localhost:8000/api/readings \
+curl -X POST http://localhost:8080/api/readings \
   -H "Content-Type: application/json" \
   -H "X-API-Token: $API_TOKEN" \
   -d '{"value": 0.42}'
@@ -60,7 +60,7 @@ zprůměrují na maximálně 1500 bodů, statistika vždy počítá ze všech vz
 | Proměnná         | Výchozí             | Význam                                      |
 | ---------------- | ------------------- | ------------------------------------------- |
 | `API_TOKEN`      | – (povinné)         | Token pro zápis, min. 8 znaků.              |
-| `PORT`           | `8000`              | Port na hostiteli (řeší compose).           |
+| `PORT`           | `8080`              | Port na hostiteli (řeší compose).           |
 | `RETENTION_DAYS` | `30`                | Jak dlouho se data uchovávají.              |
 | `DB_PATH`        | `/data/readings.db` | Cesta k SQLite (v kontejneru).              |
 
