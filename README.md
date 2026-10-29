@@ -54,11 +54,17 @@ Token lze poslat i jako `Authorization: Bearer <token>`. Hodnoty mimo rozsah
   },
   "latest_age_seconds": 8.2,
   "window_hours": 24.0,
-  "points": [{ "t": 1793290136.4, "v": 0.42 }],
+  "points": [
+    { "t": 1793290136.4, "v": 0.42, "c": "ranní kontrola" }
+  ],
   "stats": { "count": 1, "min": 0.42, "max": 0.42, "avg": 0.42 },
   "server_time": 1793290144.6
 }
 ```
+
+Pole `c` u bodu je volitelný komentář; chybí, pokud měření komentář nemá.
+Při přejetí grafem se komentář daného bodu zobrazí v pevně vysokém pruhu
+nad grafem.
 
 `GET /api/readings/all` je veřejný export bez tokenu. Vrací všechna měření
 vzestupně (od nejstaršího) včetně komentářů:
@@ -99,7 +105,9 @@ UI vychází z projektového design systému: Material 3 paleta jako CSS tokeny
 karty `rounded-xl` s `border-outline-variant` a `shadow-sm`, světlý režim jako
 výchozí a tmavý režim přes tlačítko v hlavičce (volba se ukládá do
 `localStorage`). Graf čte barvy z tokenů za běhu, takže se přepíná spolu s
-motivem. Fonty jsou self-hostované v `app/static/fonts` (licence SIL OFL).
+motivem. Nad grafem je pruh s pevnou výškou, který při přejetí zobrazí komentář
+bodu pod kurzorem. Fonty jsou self-hostované v `app/static/fonts` (licence SIL
+OFL).
 
 Frontend zůstává bez build kroku, proto tokeny spotřebovává přímo CSS místo
 Tailwind `@theme`; nevzniká tím druhá sada hodnot.

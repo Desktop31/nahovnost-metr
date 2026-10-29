@@ -17,6 +17,9 @@
     statCount: document.getElementById("stat-count"),
     comment: document.getElementById("latest-comment"),
     hint: document.getElementById("chart-hint"),
+    hoverBox: document.getElementById("chart-hover"),
+    hoverMeta: document.getElementById("hover-meta"),
+    hoverText: document.getElementById("hover-text"),
     empty: document.getElementById("empty"),
     tooltip: document.getElementById("tooltip"),
     lastRefresh: document.getElementById("last-refresh"),
@@ -166,6 +169,24 @@
     if (s < 3600) return relFmt.format(-Math.round(s / 60), "minute");
     if (s < 86400) return relFmt.format(-Math.round(s / 3600), "hour");
     return relFmt.format(-Math.round(s / 86400), "day");
+  }
+
+  const HOVER_IDLE = "Přejeďte grafem pro zobrazení komentáře.";
+
+  function resetHoverInfo() {
+    el.hoverMeta.textContent = "—";
+    el.hoverText.textContent = HOVER_IDLE;
+    el.hoverBox.classList.add("is-empty");
+    el.hoverText.scrollTop = 0;
+  }
+
+  function showHoverInfo(point) {
+    el.hoverMeta.textContent = `${point.v.toFixed(2)} · ${dateTimeFmt.format(
+      new Date(point.t * 1000)
+    )}`;
+    el.hoverText.textContent = point.c ? point.c : "Bez komentáře.";
+    el.hoverBox.classList.toggle("is-empty", !point.c);
+    el.hoverText.scrollTop = 0;
   }
 
   function setStat(node, value) {
@@ -554,14 +575,20 @@
     }
     state.hover = index;
     drawChart();
-    if (index >= 0) positionTooltip(index, x);
-    else el.tooltip.hidden = true;
+    if (index >= 0) {
+      positionTooltip(index, x);
+      showHoverInfo(state.points[index]);
+    } else {
+      el.tooltip.hidden = true;
+      resetHoverInfo();
+    }
   }
 
   function handleLeave() {
     if (state.hover === -1) return;
     state.hover = -1;
     el.tooltip.hidden = true;
+    resetHoverInfo();
     drawChart();
   }
 
@@ -583,6 +610,7 @@
       state.fetchedAt = Date.now();
       state.hover = -1;
       el.tooltip.hidden = true;
+      resetHoverInfo();
 
       renderSummary();
       drawChart();
@@ -607,6 +635,7 @@
 
   syncThemeButton();
   readTokens();
+  resetHoverInfo();
   new ResizeObserver(resize).observe(el.chart);
   resize();
   el.chart.addEventListener("mousemove", handleMove);
@@ -620,7 +649,13 @@
       const index = nearestPoint(x);
       state.hover = index;
       drawChart();
-      if (index >= 0) positionTooltip(index, x);
+      if (index >= 0) {
+        positionTooltip(index, x);
+        showHoverInfo(state.points[index]);
+      } else {
+        el.tooltip.hidden = true;
+        resetHoverInfo();
+      }
     },
     { passive: true }
   );

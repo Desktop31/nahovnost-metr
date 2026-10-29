@@ -693,6 +693,60 @@ button {
   font-weight: 500;
 }
 
+.chart-hover {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+  height: 6rem;
+  margin-bottom: 1rem;
+  padding: 0.75rem 1rem;
+  overflow: hidden;
+  border-radius: var(--radius-lg);
+  background: var(--color-surface-container-low);
+}
+
+.chart-hover-head {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.chart-hover-label {
+  color: var(--color-on-surface-variant);
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.chart-hover-meta {
+  overflow: hidden;
+  color: var(--color-on-surface-variant);
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chart-hover-text {
+  flex: 1;
+  min-height: 0;
+  margin: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  color: var(--color-on-surface);
+  font-size: 0.875rem;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  scrollbar-width: thin;
+}
+
+.chart-hover.is-empty .chart-hover-text {
+  color: var(--color-on-surface-variant);
+}
+
 .chart-wrap {
   position: relative;
   min-width: 0;
