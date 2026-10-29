@@ -705,6 +705,10 @@ button {
   background: var(--color-surface-container-low);
 }
 
+.chart-live {
+  min-width: 0;
+}
+
 .chart-hover-head {
   display: flex;
   flex: 0 0 auto;

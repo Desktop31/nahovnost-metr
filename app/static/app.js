@@ -24,6 +24,7 @@
     tooltip: document.getElementById("tooltip"),
     lastRefresh: document.getElementById("last-refresh"),
     chart: document.getElementById("chart"),
+    chartLive: document.getElementById("chart-live"),
     themeToggle: document.getElementById("theme-toggle"),
     helpToggle: document.getElementById("help-toggle"),
     helpPanel: document.getElementById("api-help"),
@@ -639,7 +640,7 @@
   new ResizeObserver(resize).observe(el.chart);
   resize();
   el.chart.addEventListener("mousemove", handleMove);
-  el.chart.addEventListener("mouseleave", handleLeave);
+  el.chartLive.addEventListener("mouseleave", handleLeave);
   el.chart.addEventListener(
     "touchstart",
     (event) => {
@@ -659,7 +660,9 @@
     },
     { passive: true }
   );
-  el.chart.addEventListener("touchend", handleLeave);
+  el.chart.addEventListener("touchend", () => {
+    el.tooltip.hidden = true;
+  });
 
   if (document.fonts && document.fonts.ready) {
     document.fonts.ready.then(drawChart);

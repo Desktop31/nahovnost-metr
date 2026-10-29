@@ -195,24 +195,26 @@
             <h2>Průběh za posledních 24 hodin</h2>
             <span class="chart-hint" id="chart-hint"></span>
           </div>
-          <div class="chart-hover is-empty" id="chart-hover">
-            <div class="chart-hover-head">
-              <span class="chart-hover-label">Komentář</span>
-              <span class="chart-hover-meta" id="hover-meta">—</span>
+          <div class="chart-live" id="chart-live">
+            <div class="chart-hover is-empty" id="chart-hover">
+              <div class="chart-hover-head">
+                <span class="chart-hover-label">Komentář</span>
+                <span class="chart-hover-meta" id="hover-meta">—</span>
+              </div>
+              <p class="chart-hover-text" id="hover-text">
+                Přejeďte grafem pro zobrazení komentáře.
+              </p>
             </div>
-            <p class="chart-hover-text" id="hover-text">
-              Přejeďte grafem pro zobrazení komentáře.
-            </p>
-          </div>
-          <div class="chart-wrap">
-            <canvas
-              id="chart"
-              role="img"
-              aria-label="Graf hodnot za posledních 24 hodin"
-            ></canvas>
-            <div class="tooltip" id="tooltip" hidden></div>
-            <div class="empty pattern-dots" id="empty" hidden>
-              Za posledních 24 hodin nejsou žádná data.
+            <div class="chart-wrap">
+              <canvas
+                id="chart"
+                role="img"
+                aria-label="Graf hodnot za posledních 24 hodin"
+              ></canvas>
+              <div class="tooltip" id="tooltip" hidden></div>
+              <div class="empty pattern-dots" id="empty" hidden>
+                Za posledních 24 hodin nejsou žádná data.
+              </div>
             </div>
           </div>
         </section>
