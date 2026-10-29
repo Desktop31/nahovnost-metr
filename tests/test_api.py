@@ -1,4 +1,5 @@
 import os
+import sqlite3
 import tempfile
 from pathlib import Path
 
@@ -8,6 +9,7 @@ os.environ["DB_PATH"] = str(Path(tempfile.mkdtemp()) / "test.db")
 import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
+from app import db  # noqa: E402
 from app.main import app  # noqa: E402
 
 TOKEN = os.environ["API_TOKEN"]
@@ -83,6 +85,84 @@ def test_ingest_accepts_boundaries(client):
             "/api/readings", json={"value": value}, headers=auth()
         )
         assert response.status_code == 201
+
+
+def test_ingest_stores_optional_comment(client):
+    created = client.post(
+        "/api/readings",
+        json={"value": 0.33, "comment": "  ranní kontrola  "},
+        headers=auth(),
+    )
+    assert created.status_code == 201
+    assert created.json()["comment"] == "ranní kontrola"
+
+    latest = client.get("/api/readings?hours=24").json()["latest"]
+    assert latest["comment"] == "ranní kontrola"
+
+
+def test_ingest_treats_blank_comment_as_missing(client):
+    created = client.post(
+        "/api/readings",
+        json={"value": 0.4, "comment": "   "},
+        headers=auth(),
+    )
+    assert created.status_code == 201
+    assert created.json()["comment"] is None
+
+
+def test_ingest_rejects_overlong_comment(client):
+    response = client.post(
+        "/api/readings",
+        json={"value": 0.4, "comment": "x" * 501},
+        headers=auth(),
+    )
+    assert response.status_code == 422
+
+
+def test_all_readings_are_public_and_include_comments(client):
+    client.post(
+        "/api/readings",
+        json={"value": 0.11, "comment": "start"},
+        headers=auth(),
+    )
+    client.post(
+        "/api/readings",
+        json={"value": 0.88},
+        headers=auth(),
+    )
+
+    response = client.get("/api/readings/all")
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-store"
+    body = response.json()
+    assert body["count"] == len(body["readings"])
+    assert body["count"] >= 2
+    assert [item["created_at"] for item in body["readings"]] == sorted(
+        item["created_at"] for item in body["readings"]
+    )
+    assert any(item["comment"] == "start" for item in body["readings"])
+    assert all("comment" in item for item in body["readings"])
+
+
+def test_init_db_migrates_legacy_table(tmp_path, monkeypatch):
+    legacy = tmp_path / "legacy.db"
+    conn = sqlite3.connect(legacy)
+    conn.execute(
+        "CREATE TABLE readings ("
+        "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+        "value REAL NOT NULL, "
+        "created_at REAL NOT NULL)"
+    )
+    conn.commit()
+    conn.close()
+
+    monkeypatch.setattr(db, "DB_PATH", legacy)
+    db.init_db()
+
+    conn = sqlite3.connect(legacy)
+    columns = [row[1] for row in conn.execute("PRAGMA table_info(readings)")]
+    conn.close()
+    assert "comment" in columns
 
 
 def test_readings_returns_latest_and_points(client):

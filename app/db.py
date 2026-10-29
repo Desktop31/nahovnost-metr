@@ -28,22 +28,30 @@ def init_db() -> None:
             CREATE TABLE IF NOT EXISTS readings (
                 id         INTEGER PRIMARY KEY AUTOINCREMENT,
                 value      REAL NOT NULL CHECK (value >= 0.0 AND value <= 1.0),
-                created_at REAL NOT NULL
+                created_at REAL NOT NULL,
+                comment    TEXT
             )
             """
         )
+        # Existing databases predate the optional comment column.
+        columns = {
+            row["name"]
+            for row in conn.execute("PRAGMA table_info(readings)").fetchall()
+        }
+        if "comment" not in columns:
+            conn.execute("ALTER TABLE readings ADD COLUMN comment TEXT")
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_readings_created_at "
             "ON readings (created_at)"
         )
 
 
-def add_reading(value: float) -> dict:
+def add_reading(value: float, comment: str | None = None) -> dict:
     now = time.time()
     with connect() as conn:
         cur = conn.execute(
-            "INSERT INTO readings (value, created_at) VALUES (?, ?)",
-            (value, now),
+            "INSERT INTO readings (value, created_at, comment) VALUES (?, ?, ?)",
+            (value, now, comment),
         )
         reading_id = cur.lastrowid
         # Bounded storage: drop everything past the retention window.
@@ -51,7 +59,12 @@ def add_reading(value: float) -> dict:
             "DELETE FROM readings WHERE created_at < ?",
             (now - RETENTION_DAYS * 86400,),
         )
-    return {"id": reading_id, "value": value, "created_at": now}
+    return {
+        "id": reading_id,
+        "value": value,
+        "created_at": now,
+        "comment": comment,
+    }
 
 
 def _row_to_reading(row: sqlite3.Row) -> dict:
@@ -59,16 +72,27 @@ def _row_to_reading(row: sqlite3.Row) -> dict:
         "id": row["id"],
         "value": row["value"],
         "created_at": row["created_at"],
+        "comment": row["comment"],
     }
 
 
 def latest_reading() -> dict | None:
     with connect() as conn:
         row = conn.execute(
-            "SELECT id, value, created_at FROM readings "
+            "SELECT id, value, created_at, comment FROM readings "
             "ORDER BY created_at DESC, id DESC LIMIT 1"
         ).fetchone()
     return _row_to_reading(row) if row else None
+
+
+def all_readings() -> list[dict]:
+    """Every stored reading, oldest first, including comments."""
+    with connect() as conn:
+        rows = conn.execute(
+            "SELECT id, value, created_at, comment FROM readings "
+            "ORDER BY created_at ASC, id ASC"
+        ).fetchall()
+    return [_row_to_reading(row) for row in rows]
 
 
 def readings_window(hours: float) -> tuple[list[dict], dict]:

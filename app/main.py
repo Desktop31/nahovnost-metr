@@ -13,7 +13,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Query, Response, st
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from . import db
 
@@ -41,7 +41,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Nahovnost meter",
-    version="1.0.0",
+    version="1.1.0",
     lifespan=lifespan,
 )
 
@@ -91,12 +91,26 @@ class ReadingIn(BaseModel):
         allow_inf_nan=False,
         description="0.00 = best, 1.00 = worst",
     )
+    comment: str | None = Field(
+        default=None,
+        max_length=500,
+        description="Optional free-form note stored with the reading.",
+    )
+
+    @field_validator("comment")
+    @classmethod
+    def normalize_comment(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        value = value.strip()
+        return value or None
 
 
 class ReadingOut(BaseModel):
     id: int
     value: float
     created_at: float
+    comment: str | None = None
 
 
 @app.get("/api/health")
@@ -111,7 +125,7 @@ def health() -> dict:
     dependencies=[Depends(require_token)],
 )
 def create_reading(payload: ReadingIn) -> dict:
-    return db.add_reading(payload.value)
+    return db.add_reading(payload.value, payload.comment)
 
 
 @app.get("/api/readings")
@@ -131,6 +145,14 @@ def list_readings(
         "stats": stats,
         "server_time": now,
     }
+
+
+@app.get("/api/readings/all")
+def list_all_readings(response: Response) -> dict:
+    """Public export of every retained reading, oldest first."""
+    response.headers["Cache-Control"] = "no-store"
+    readings = db.all_readings()
+    return {"count": len(readings), "readings": readings}
 
 
 @app.get("/", include_in_schema=False)
