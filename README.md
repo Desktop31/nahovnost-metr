@@ -20,32 +20,38 @@ docker compose up -d --build
 
 Dashboard běží na <http://localhost:8080> (port lze změnit přes `PORT` v `.env`).
 
-Zápis dat:
+Zápis dat (komentář je volitelný, max. 500 znaků):
 
 ```bash
 curl -X POST http://localhost:8080/api/readings \
   -H "Content-Type: application/json" \
   -H "X-API-Token: $API_TOKEN" \
-  -d '{"value": 0.42}'
+  -d '{"value": 0.42, "comment": "ranní kontrola"}'
 ```
 
 Token lze poslat i jako `Authorization: Bearer <token>`. Hodnoty mimo rozsah
-`0.00–1.00` a nečíselné vstupy API odmítne s `422`.
+`0.00–1.00`, nečíselné vstupy a příliš dlouhé komentáře API odmítne s `422`.
 
 ## API
 
-| Metoda | Cesta            | Autorizace | Popis                                      |
-| ------ | ---------------- | ---------- | ------------------------------------------ |
-| `POST` | `/api/readings`  | token      | Uloží jedno měření (`{"value": 0.42}`).     |
-| `GET`  | `/api/readings`  | ne         | Nejnovější hodnota, body a statistiky.      |
-| `GET`  | `/api/health`    | ne         | Healthcheck.                               |
-| `GET`  | `/docs`          | ne         | Interaktivní OpenAPI dokumentace.           |
+| Metoda | Cesta               | Autorizace | Popis                                       |
+| ------ | ------------------- | ---------- | ------------------------------------------- |
+| `POST` | `/api/readings`     | token      | Uloží měření a volitelný `comment`.          |
+| `GET`  | `/api/readings`     | ne         | Nejnovější hodnota, body a statistiky.      |
+| `GET`  | `/api/readings/all` | ne         | Všechna uložená měření včetně komentářů.     |
+| `GET`  | `/api/health`       | ne         | Healthcheck.                                |
+| `GET`  | `/docs`             | ne         | Interaktivní OpenAPI dokumentace.            |
 
 `GET /api/readings?hours=24` vrací například:
 
 ```json
 {
-  "latest": { "id": 12, "value": 0.42, "created_at": 1793290136.4 },
+  "latest": {
+    "id": 12,
+    "value": 0.42,
+    "created_at": 1793290136.4,
+    "comment": "ranní kontrola"
+  },
   "latest_age_seconds": 8.2,
   "window_hours": 24.0,
   "points": [{ "t": 1793290136.4, "v": 0.42 }],
@@ -54,8 +60,26 @@ Token lze poslat i jako `Authorization: Bearer <token>`. Hodnoty mimo rozsah
 }
 ```
 
+`GET /api/readings/all` je veřejný export bez tokenu. Vrací všechna měření
+vzestupně (od nejstaršího) včetně komentářů:
+
+```json
+{
+  "count": 1,
+  "readings": [
+    {
+      "id": 12,
+      "value": 0.42,
+      "created_at": 1793290136.4,
+      "comment": "ranní kontrola"
+    }
+  ]
+}
+```
+
 Časy jsou UNIX timestampy v UTC (sekundy). Při hustém sběru se body pro graf
 zprůměrují na maximálně 1500 bodů, statistika vždy počítá ze všech vzorků.
+Stejné instrukce jsou i v dashboardu pod ikonou otazníku v horním baru.
 
 ## Konfigurace
 
@@ -107,6 +131,7 @@ app/
     index.html     dashboard
     style.css      design tokeny, světlý a tmavý režim
     app.js         načítání dat, canvasový graf, přepínání motivu
+    logo-placeholder.svg  dočasné logo (1:1, nahraditelné)
     fonts/         Inter a Manrope (SIL OFL)
 Dockerfile
 docker-compose.yml
@@ -114,8 +139,9 @@ docker-compose.yml
 
 ## Bezpečnostní poznámky
 
-- Čtení (`GET /api/readings`) je veřejné, protože ho používá dashboard. Zápis
-  vyžaduje token.
+- Čtení (`GET /api/readings`, `GET /api/readings/all`) je veřejné, protože ho
+  používá dashboard a veřejný export. Zápis vyžaduje token.
+- Komentáře jsou součástí veřejných dat; neukládejte do nich citlivé údaje.
 - Token se porovnává v konstantním čase. Pro produkci použijte dlouhý náhodný
   token a aplikaci nasaďte za HTTPS reverse proxy (Caddy, Nginx, Traefik).
 - Aplikace nemá rate limiting; při veřejném vystavení zvažte limit na proxy.
