@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="cs">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Nahovnost meter</title>
+    <link rel="stylesheet" href="/static/style.css" />
+  </head>
+  <body>
+    <div class="page">
+      <header class="masthead">
+        <div>
+          <h1>Nahovnost meter</h1>
+          <p class="subtitle">
+            <span class="dot" data-scale-color="0"></span>
+            0.00 = nejlepší &nbsp;·&nbsp;
+            <span class="dot" data-scale-color="1"></span>
+            1.00 = nejhorší
+          </p>
+        </div>
+        <div class="live" id="live" title="Stav připojení">
+          <span class="live-dot"></span><span id="live-text">připojuji…</span>
+        </div>
+      </header>
+
+      <main>
+        <section class="cards">
+          <article class="card latest">
+            <h2>Aktuální hodnota</h2>
+            <div class="latest-row">
+              <span class="value" id="latest-value">—</span>
+              <span class="badge" id="latest-badge">bez dat</span>
+            </div>
+            <p class="latest-time" id="latest-time">Zatím nebylo nic naměřeno.</p>
+            <div class="scale" aria-hidden="true">
+              <div class="scale-bar"></div>
+              <div class="scale-labels">
+                <span>0.00 nejlepší</span>
+                <span>0.50</span>
+                <span>1.00 nejhorší</span>
+              </div>
+              <div class="scale-marker" id="scale-marker"></div>
+            </div>
+          </article>
+
+          <article class="card stats">
+            <h2>Posledních 24 hodin</h2>
+            <dl class="stat-grid">
+              <div>
+                <dt>Minimum</dt>
+                <dd id="stat-min">—</dd>
+              </div>
+              <div>
+                <dt>Maximum</dt>
+                <dd id="stat-max">—</dd>
+              </div>
+              <div>
+                <dt>Průměr</dt>
+                <dd id="stat-avg">—</dd>
+              </div>
+              <div>
+                <dt>Vzorků</dt>
+                <dd id="stat-count">0</dd>
+              </div>
+            </dl>
+          </article>
+        </section>
+
+        <section class="card chart-card">
+          <div class="chart-head">
+            <h2>Průběh za posledních 24 hodin</h2>
+            <span class="chart-hint" id="chart-hint"></span>
+          </div>
+          <div class="chart-wrap">
+            <canvas id="chart" role="img" aria-label="Graf hodnot za posledních 24 hodin"></canvas>
+            <div class="tooltip" id="tooltip" hidden></div>
+            <div class="empty" id="empty" hidden>Za posledních 24 hodin nejsou žádná data.</div>
+          </div>
+        </section>
+
+        <section class="card api-note">
+          <h2>Zápis dat</h2>
+          <p>
+            Hodnoty v rozsahu <code>0.00–1.00</code> se posílají na
+            <code>POST /api/readings</code> s hlavičkou
+            <code>X-API-Token</code> (nebo <code>Authorization: Bearer</code>).
+          </p>
+          <pre><code>curl -X POST http://localhost:8000/api/readings \
+  -H "Content-Type: application/json" \
+  -H "X-API-Token: $API_TOKEN" \
+  -d '{"value": 0.42}'</code></pre>
+        </section>
+      </main>
+
+      <footer>
+        <span>Obnovováno každých 30 s.</span>
+        <span id="last-refresh"></span>
+      </footer>
+    </div>
+
+    <script src="/static/app.js" defer></script>
+  </body>
+</html>
