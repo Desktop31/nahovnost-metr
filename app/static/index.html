@@ -6,36 +6,62 @@
     <title>Nahovnost meter</title>
     <link
       rel="icon"
-      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230b1120'/%3E%3Cpath d='M7 23 L13 13 L19 18 L25 8' stroke='%2322c55e' stroke-width='3' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23fdb700'/%3E%3Cpath d='M7 23 L13 13 L19 18 L25 8' stroke='%236a4b00' stroke-width='3' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E"
     />
     <link rel="stylesheet" href="/static/style.css" />
+    <script>
+      try {
+        if (localStorage.getItem("nahovnost-theme") === "dark") {
+          document.documentElement.classList.add("dark");
+        }
+      } catch (error) {
+        /* storage may be unavailable; light theme is the default */
+      }
+    </script>
   </head>
   <body>
-    <div class="page">
-      <header class="masthead">
-        <div>
-          <h1>Nahovnost meter</h1>
-          <p class="subtitle">
-            <span class="dot" data-scale-color="0"></span>
-            0.00 = nejlepší &nbsp;·&nbsp;
-            <span class="dot" data-scale-color="1"></span>
-            1.00 = nejhorší
-          </p>
+    <header class="topbar">
+      <div class="topbar-inner">
+        <div class="brand">
+          <div class="brand-mark" aria-hidden="true">N</div>
+          <div class="brand-text">
+            <h1 class="brand-title">Nahovnost meter</h1>
+            <p class="brand-subtitle">
+              <span class="legend-dot legend-dot--best"></span>0.00 nejlepší
+              <span class="legend-sep">·</span>
+              <span class="legend-dot legend-dot--worst"></span>1.00 nejhorší
+            </p>
+          </div>
         </div>
-        <div class="live" id="live" title="Stav připojení">
-          <span class="live-dot"></span><span id="live-text">připojuji…</span>
+        <div class="topbar-actions">
+          <div class="live" id="live" title="Stav připojení">
+            <span class="live-dot"></span
+            ><span id="live-text">připojuji…</span>
+          </div>
+          <button
+            type="button"
+            class="btn btn--outline"
+            id="theme-toggle"
+            aria-pressed="false"
+          >
+            Tmavý režim
+          </button>
         </div>
-      </header>
+      </div>
+    </header>
 
-      <main>
+    <div class="page">
+      <main class="content">
         <section class="cards">
-          <article class="card latest">
+          <article class="card card--latest">
             <h2>Aktuální hodnota</h2>
             <div class="latest-row">
               <span class="value" id="latest-value">—</span>
-              <span class="badge" id="latest-badge">bez dat</span>
+              <span class="badge badge--muted" id="latest-badge">bez dat</span>
             </div>
-            <p class="latest-time" id="latest-time">Zatím nebylo nic naměřeno.</p>
+            <p class="latest-time" id="latest-time">
+              Zatím nebylo nic naměřeno.
+            </p>
             <div class="scale" aria-hidden="true">
               <div class="scale-bar"></div>
               <div class="scale-labels">
@@ -47,22 +73,22 @@
             </div>
           </article>
 
-          <article class="card stats">
+          <article class="card">
             <h2>Posledních 24 hodin</h2>
             <dl class="stat-grid">
-              <div>
+              <div class="stat">
                 <dt>Minimum</dt>
                 <dd id="stat-min">—</dd>
               </div>
-              <div>
+              <div class="stat">
                 <dt>Maximum</dt>
                 <dd id="stat-max">—</dd>
               </div>
-              <div>
+              <div class="stat">
                 <dt>Průměr</dt>
                 <dd id="stat-avg">—</dd>
               </div>
-              <div>
+              <div class="stat">
                 <dt>Vzorků</dt>
                 <dd id="stat-count">0</dd>
               </div>
@@ -76,9 +102,15 @@
             <span class="chart-hint" id="chart-hint"></span>
           </div>
           <div class="chart-wrap">
-            <canvas id="chart" role="img" aria-label="Graf hodnot za posledních 24 hodin"></canvas>
+            <canvas
+              id="chart"
+              role="img"
+              aria-label="Graf hodnot za posledních 24 hodin"
+            ></canvas>
             <div class="tooltip" id="tooltip" hidden></div>
-            <div class="empty" id="empty" hidden>Za posledních 24 hodin nejsou žádná data.</div>
+            <div class="empty pattern-dots" id="empty" hidden>
+              Za posledních 24 hodin nejsou žádná data.
+            </div>
           </div>
         </section>
 
@@ -96,7 +128,7 @@
         </section>
       </main>
 
-      <footer>
+      <footer class="footer">
         <span>Obnovováno každých 30 s.</span>
         <span id="last-refresh"></span>
       </footer>

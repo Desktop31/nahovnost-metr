@@ -3,6 +3,8 @@
 
   const REFRESH_MS = 30_000;
   const HOURS = 24;
+  const THEME_KEY = "nahovnost-theme";
+  const PAD = { top: 16, right: 16, bottom: 32, left: 48 };
 
   const el = {
     value: document.getElementById("latest-value"),
@@ -20,6 +22,7 @@
     tooltip: document.getElementById("tooltip"),
     lastRefresh: document.getElementById("last-refresh"),
     chart: document.getElementById("chart"),
+    themeToggle: document.getElementById("theme-toggle"),
   };
 
   const state = {
@@ -43,25 +46,116 @@
   });
   const relFmt = new Intl.RelativeTimeFormat("cs", { numeric: "auto" });
 
-  function clamp(v, lo, hi) {
-    return Math.min(hi, Math.max(lo, v));
+  let tokens = {};
+
+  const clamp = (value, lo, hi) => Math.min(hi, Math.max(lo, value));
+
+  /* ------------------------------------------------------------- tokens */
+
+  function readTokens() {
+    const styles = getComputedStyle(document.documentElement);
+    const read = (name) => styles.getPropertyValue(name).trim();
+
+    tokens = {
+      success: read("--color-success"),
+      secondary: read("--color-secondary"),
+      error: read("--color-error"),
+      successContainer: read("--color-success-container"),
+      errorContainer: read("--color-error-container"),
+      surfaceLow: read("--color-surface-container-low"),
+      surfaceLowest: read("--color-surface-container-lowest"),
+      onSurface: read("--color-on-surface"),
+      onSurfaceVariant: read("--color-on-surface-variant"),
+      outlineVariant: read("--color-outline-variant"),
+      fontSans: read("--font-sans"),
+      radiusLg: read("--radius-lg"),
+    };
   }
 
-  /** 0.00 → green, 0.50 → yellow, 1.00 → red. */
+  function parseColor(input) {
+    const value = (input || "").trim();
+
+    if (value.startsWith("#")) {
+      const hex = value.slice(1);
+      const full =
+        hex.length === 3
+          ? hex
+              .split("")
+              .map((char) => char + char)
+              .join("")
+          : hex;
+      return {
+        r: parseInt(full.slice(0, 2), 16),
+        g: parseInt(full.slice(2, 4), 16),
+        b: parseInt(full.slice(4, 6), 16),
+      };
+    }
+
+    const match = value.match(
+      /rgba?\(\s*([\d.]+)[\s,]+([\d.]+)[\s,]+([\d.]+)/
+    );
+    if (match) {
+      return {
+        r: Number(match[1]),
+        g: Number(match[2]),
+        b: Number(match[3]),
+      };
+    }
+
+    return { r: 0, g: 0, b: 0 };
+  }
+
+  function mix(from, to, amount) {
+    const a = parseColor(from);
+    const b = parseColor(to);
+    const t = clamp(amount, 0, 1);
+    const channel = (start, end) => Math.round(start + (end - start) * t);
+    return `rgb(${channel(a.r, b.r)}, ${channel(a.g, b.g)}, ${channel(
+      a.b,
+      b.b
+    )})`;
+  }
+
+  function translucent(color, alpha) {
+    const { r, g, b } = parseColor(color);
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+  }
+
+  /** 0.00 → success, 0.50 → secondary, 1.00 → error. */
   function colorFor(value) {
     const v = clamp(Number(value), 0, 1);
-    const hue = 140 * (1 - v);
-    return `hsl(${hue.toFixed(0)} 78% 58%)`;
+    return v <= 0.5
+      ? mix(tokens.success, tokens.secondary, v * 2)
+      : mix(tokens.secondary, tokens.error, (v - 0.5) * 2);
   }
 
-  function classify(value) {
-    if (value === null) return { label: "bez dat", color: "var(--muted)" };
-    if (value < 0.2) return { label: "velmi dobré", color: colorFor(value) };
-    if (value < 0.4) return { label: "dobré", color: colorFor(value) };
-    if (value < 0.6) return { label: "průměrné", color: colorFor(value) };
-    if (value < 0.8) return { label: "špatné", color: colorFor(value) };
-    return { label: "velmi špatné", color: colorFor(value) };
+  /** Readable text colour for the current severity. */
+  function severityToken(value) {
+    if (value < 0.4) return "var(--color-success)";
+    if (value < 0.8) return "var(--color-secondary)";
+    return "var(--color-error)";
   }
+
+  function badgeFor(value) {
+    if (value === null) {
+      return { className: "badge--muted", label: "bez dat" };
+    }
+    if (value < 0.2) {
+      return { className: "badge--success", label: "velmi dobré" };
+    }
+    if (value < 0.4) {
+      return { className: "badge--success-soft", label: "dobré" };
+    }
+    if (value < 0.6) {
+      return { className: "badge--warning", label: "průměrné" };
+    }
+    if (value < 0.8) {
+      return { className: "badge--warning-strong", label: "špatné" };
+    }
+    return { className: "badge--error", label: "velmi špatné" };
+  }
+
+  /* --------------------------------------------------------------- text */
 
   function formatAge(seconds) {
     if (seconds === null || !Number.isFinite(seconds)) return "";
@@ -78,48 +172,55 @@
     el.liveText.textContent = text;
   }
 
+  function setStat(node, value) {
+    if (value === null || value === undefined) {
+      node.textContent = "—";
+      node.style.color = "";
+      return;
+    }
+    node.textContent = value.toFixed(2);
+    node.style.color = severityToken(value);
+  }
+
   function renderSummary() {
     const { latest, stats } = state;
 
     if (latest) {
       const age = Date.now() / 1000 - latest.created_at;
       el.value.textContent = latest.value.toFixed(2);
-      el.value.style.color = colorFor(latest.value);
-      const cls = classify(latest.value);
-      el.badge.textContent = cls.label;
-      el.badge.style.color = cls.color;
-      el.badge.style.borderColor = "currentColor";
+      el.value.style.color = severityToken(latest.value);
+
+      const badge = badgeFor(latest.value);
+      el.badge.className = `badge ${badge.className}`;
+      el.badge.textContent = badge.label;
+
       el.time.textContent = `Naměřeno ${dateTimeFmt.format(
         new Date(latest.created_at * 1000)
       )} · ${formatAge(age)}`;
+
       el.marker.style.left = `${clamp(latest.value, 0, 1) * 100}%`;
-      el.marker.style.background = colorFor(latest.value);
       el.marker.classList.add("is-visible");
     } else {
       el.value.textContent = "—";
       el.value.style.color = "";
+      el.badge.className = "badge badge--muted";
       el.badge.textContent = "bez dat";
-      el.badge.style.color = "";
       el.time.textContent = "Zatím nebylo nic naměřeno.";
       el.marker.classList.remove("is-visible");
     }
 
     if (stats && stats.count > 0) {
-      el.statMin.textContent = stats.min.toFixed(2);
-      el.statMax.textContent = stats.max.toFixed(2);
-      el.statAvg.textContent = stats.avg.toFixed(2);
+      setStat(el.statMin, stats.min);
+      setStat(el.statMax, stats.max);
+      setStat(el.statAvg, stats.avg);
       el.statCount.textContent = String(stats.count);
-      el.statMin.style.color = colorFor(stats.min);
-      el.statMax.style.color = colorFor(stats.max);
-      el.statAvg.style.color = colorFor(stats.avg);
+      el.statCount.style.color = "";
     } else {
-      el.statMin.textContent = "—";
-      el.statMax.textContent = "—";
-      el.statAvg.textContent = "—";
+      setStat(el.statMin, null);
+      setStat(el.statMax, null);
+      setStat(el.statAvg, null);
       el.statCount.textContent = "0";
-      el.statMin.style.color = "";
-      el.statMax.style.color = "";
-      el.statAvg.style.color = "";
+      el.statCount.style.color = "";
     }
 
     const shown = state.points.length;
@@ -137,13 +238,33 @@
     )}`;
   }
 
-  function drawHeaderDots() {
-    document.querySelectorAll("[data-scale-color]").forEach((node) => {
-      node.style.background = colorFor(Number(node.dataset.scaleColor));
-    });
+  /* --------------------------------------------------------------- theme */
+
+  function isDark() {
+    return document.documentElement.classList.contains("dark");
   }
 
-  // ---------------------------------------------------------------- canvas
+  function syncThemeButton() {
+    const dark = isDark();
+    el.themeToggle.setAttribute("aria-pressed", String(dark));
+    el.themeToggle.textContent = dark ? "Světlý režim" : "Tmavý režim";
+  }
+
+  function applyTheme(dark) {
+    document.documentElement.classList.toggle("dark", dark);
+    try {
+      localStorage.setItem(THEME_KEY, dark ? "dark" : "light");
+    } catch (error) {
+      /* keep the toggle working without persistence */
+    }
+    syncThemeButton();
+    readTokens();
+    drawChart();
+  }
+
+  el.themeToggle.addEventListener("click", () => applyTheme(!isDark()));
+
+  /* -------------------------------------------------------------- canvas */
 
   const ctx = el.chart.getContext("2d");
   let width = 0;
@@ -160,139 +281,176 @@
     drawChart();
   }
 
-  function xFor(t, pad, plotW) {
+  function xFor(t, plotW) {
     const span = HOURS * 3600;
     const x = ((t - (state.windowEnd - span)) / span) * plotW;
-    return pad.left + clamp(x, 0, plotW);
+    return PAD.left + clamp(x, 0, plotW);
   }
 
   function drawChart() {
     ctx.clearRect(0, 0, width, height);
-    if (!width || !height) return;
+    if (!width || !height || !tokens.success) return;
 
-    const pad = { top: 14, right: 14, bottom: 28, left: 46 };
-    const plotW = Math.max(1, width - pad.left - pad.right);
-    const plotH = Math.max(1, height - pad.top - pad.bottom);
-    const yFor = (v) => pad.top + (1 - clamp(v, 0, 1)) * plotH;
+    const plotW = Math.max(1, width - PAD.left - PAD.right);
+    const plotH = Math.max(1, height - PAD.top - PAD.bottom);
+    const yFor = (value) =>
+      PAD.top + (1 - clamp(value, 0, 1)) * plotH;
+    const plotRadius = parseFloat(tokens.radiusLg) || 8;
+    const font = `500 12px ${tokens.fontSans}`;
 
-    // Background tint: green (best) at the bottom, red (worst) at the top.
-    const bg = ctx.createLinearGradient(0, pad.top, 0, pad.top + plotH);
-    bg.addColorStop(0, "rgba(239, 68, 68, 0.075)");
-    bg.addColorStop(0.5, "rgba(148, 163, 184, 0.02)");
-    bg.addColorStop(1, "rgba(34, 197, 94, 0.075)");
-    ctx.fillStyle = bg;
-    ctx.fillRect(pad.left, pad.top, plotW, plotH);
+    // Plot surface, stepping up from the card surface.
+    ctx.save();
+    ctx.beginPath();
+    ctx.roundRect(PAD.left, PAD.top, plotW, plotH, plotRadius);
+    ctx.clip();
+    ctx.fillStyle = tokens.surfaceLow;
+    ctx.fillRect(PAD.left, PAD.top, plotW, plotH);
 
-    // Horizontal grid + y labels.
-    ctx.font =
-      '11px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace';
+    const bands = ctx.createLinearGradient(
+      0,
+      PAD.top,
+      0,
+      PAD.top + plotH
+    );
+    bands.addColorStop(0, translucent(tokens.errorContainer, 0.42));
+    bands.addColorStop(0.5, translucent(tokens.surfaceLow, 0));
+    bands.addColorStop(1, translucent(tokens.successContainer, 0.42));
+    ctx.fillStyle = bands;
+    ctx.fillRect(PAD.left, PAD.top, plotW, plotH);
+    ctx.restore();
+
+    // Horizontal grid and value labels.
+    ctx.font = font;
     ctx.textAlign = "right";
     ctx.textBaseline = "middle";
-    for (let i = 0; i <= 4; i++) {
-      const v = i / 4;
-      const y = yFor(v);
-      ctx.strokeStyle = i === 0 || i === 4 ? "#2b3a55" : "#1e2a40";
+    for (let i = 0; i <= 4; i += 1) {
+      const value = i / 4;
+      const y = yFor(value);
+      ctx.globalAlpha = i === 0 || i === 4 ? 0.9 : 0.55;
+      ctx.strokeStyle = tokens.outlineVariant;
       ctx.lineWidth = 1;
       ctx.beginPath();
-      ctx.moveTo(pad.left, y + 0.5);
-      ctx.lineTo(pad.left + plotW, y + 0.5);
+      ctx.moveTo(PAD.left, y + 0.5);
+      ctx.lineTo(PAD.left + plotW, y + 0.5);
       ctx.stroke();
-      ctx.fillStyle = "#7f8fa8";
-      ctx.fillText(v.toFixed(2), pad.left - 9, y);
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = tokens.onSurfaceVariant;
+      ctx.fillText(value.toFixed(2), PAD.left - 10, y);
     }
 
-    // Vertical time grid + x labels.
     const start = state.windowEnd - HOURS * 3600;
-    ctx.textAlign = "center";
+    const span = HOURS * 3600;
+
+    // Vertical time grid and clock labels.
     ctx.textBaseline = "top";
-    for (let i = 0; i <= 4; i++) {
-      const t = start + (i / 4) * HOURS * 3600;
-      const x = pad.left + (i / 4) * plotW;
-      ctx.strokeStyle = "#1b2539";
+    for (let i = 0; i <= 4; i += 1) {
+      const x = PAD.left + (i / 4) * plotW;
+      const t = start + (i / 4) * span;
+      ctx.globalAlpha = 0.4;
+      ctx.strokeStyle = tokens.outlineVariant;
       ctx.beginPath();
-      ctx.moveTo(x + 0.5, pad.top);
-      ctx.lineTo(x + 0.5, pad.top + plotH);
+      ctx.moveTo(x + 0.5, PAD.top);
+      ctx.lineTo(x + 0.5, PAD.top + plotH);
       ctx.stroke();
-      const anchor = i === 0 ? "left" : i === 4 ? "right" : "center";
-      ctx.textAlign = anchor;
-      ctx.fillStyle = "#7f8fa8";
-      ctx.fillText(timeFmt.format(new Date(t * 1000)), x, pad.top + plotH + 9);
+      ctx.globalAlpha = 1;
+      ctx.textAlign = i === 0 ? "left" : i === 4 ? "right" : "center";
+      ctx.fillStyle = tokens.onSurfaceVariant;
+      ctx.fillText(
+        timeFmt.format(new Date(t * 1000)),
+        x,
+        PAD.top + plotH + 10
+      );
     }
 
     if (!state.points.length) return;
 
     const pts = state.points;
 
-    // Area under the curve.
-    const area = ctx.createLinearGradient(0, pad.top, 0, pad.top + plotH);
-    area.addColorStop(0, "rgba(239, 68, 68, 0.10)");
-    area.addColorStop(1, "rgba(34, 197, 94, 0.10)");
+    // Area beneath the series.
+    ctx.save();
     ctx.beginPath();
-    pts.forEach((p, i) => {
-      const x = xFor(p.t, pad, plotW);
-      const y = yFor(p.v);
-      if (i === 0) ctx.moveTo(x, y);
+    ctx.roundRect(PAD.left, PAD.top, plotW, plotH, plotRadius);
+    ctx.clip();
+    ctx.beginPath();
+    pts.forEach((point, index) => {
+      const x = xFor(point.t, plotW);
+      const y = yFor(point.v);
+      if (index === 0) ctx.moveTo(x, y);
       else ctx.lineTo(x, y);
     });
-    ctx.lineTo(xFor(pts[pts.length - 1].t, pad, plotW), pad.top + plotH);
-    ctx.lineTo(xFor(pts[0].t, pad, plotW), pad.top + plotH);
+    ctx.lineTo(xFor(pts[pts.length - 1].t, plotW), PAD.top + plotH);
+    ctx.lineTo(xFor(pts[0].t, plotW), PAD.top + plotH);
     ctx.closePath();
+    const area = ctx.createLinearGradient(
+      0,
+      PAD.top,
+      0,
+      PAD.top + plotH
+    );
+    area.addColorStop(0, translucent(tokens.errorContainer, 0.32));
+    area.addColorStop(1, translucent(tokens.successContainer, 0.32));
     ctx.fillStyle = area;
     ctx.fill();
+    ctx.restore();
 
-    // Line, colored by value height: green low, red high.
-    const line = ctx.createLinearGradient(0, pad.top, 0, pad.top + plotH);
-    line.addColorStop(0, "#ef4444");
-    line.addColorStop(0.3, "#f59e0b");
-    line.addColorStop(0.6, "#eab308");
-    line.addColorStop(1, "#22c55e");
+    // Series line: red high, amber mid, green low.
+    const line = ctx.createLinearGradient(0, PAD.top, 0, PAD.top + plotH);
+    line.addColorStop(0, tokens.error);
+    line.addColorStop(0.5, tokens.secondary);
+    line.addColorStop(1, tokens.success);
     ctx.beginPath();
-    pts.forEach((p, i) => {
-      const x = xFor(p.t, pad, plotW);
-      const y = yFor(p.v);
-      if (i === 0) ctx.moveTo(x, y);
+    pts.forEach((point, index) => {
+      const x = xFor(point.t, plotW);
+      const y = yFor(point.v);
+      if (index === 0) ctx.moveTo(x, y);
       else ctx.lineTo(x, y);
     });
     ctx.strokeStyle = line;
-    ctx.lineWidth = 2;
+    ctx.lineWidth = 2.5;
     ctx.lineJoin = "round";
     ctx.lineCap = "round";
     ctx.stroke();
 
-    // Individual samples: dots when the series is sparse enough to read.
+    // Individual samples when the series is sparse enough to read.
     if (pts.length <= 240) {
-      pts.forEach((p) => {
-        const x = xFor(p.t, pad, plotW);
-        const y = yFor(p.v);
+      ctx.strokeStyle = tokens.surfaceLow;
+      ctx.lineWidth = 1.5;
+      pts.forEach((point) => {
         ctx.beginPath();
-        ctx.arc(x, y, 2.4, 0, Math.PI * 2);
-        ctx.fillStyle = colorFor(p.v);
+        ctx.arc(
+          xFor(point.t, plotW),
+          yFor(point.v),
+          2.6,
+          0,
+          Math.PI * 2
+        );
+        ctx.fillStyle = colorFor(point.v);
         ctx.fill();
-        ctx.strokeStyle = "#0b1120";
-        ctx.lineWidth = 1;
         ctx.stroke();
       });
     }
 
     // Hover crosshair.
     if (state.hover >= 0 && state.hover < pts.length) {
-      const p = pts[state.hover];
-      const x = xFor(p.t, pad, plotW);
-      const y = yFor(p.v);
-      ctx.strokeStyle = "rgba(230, 237, 247, 0.28)";
+      const point = pts[state.hover];
+      const x = xFor(point.t, plotW);
+      const y = yFor(point.v);
+      ctx.globalAlpha = 0.3;
+      ctx.strokeStyle = tokens.onSurface;
       ctx.lineWidth = 1;
-      ctx.setLineDash([3, 3]);
+      ctx.setLineDash([3, 4]);
       ctx.beginPath();
-      ctx.moveTo(x, pad.top);
-      ctx.lineTo(x, pad.top + plotH);
+      ctx.moveTo(x, PAD.top);
+      ctx.lineTo(x, PAD.top + plotH);
       ctx.stroke();
       ctx.setLineDash([]);
+      ctx.globalAlpha = 1;
       ctx.beginPath();
       ctx.arc(x, y, 4.5, 0, Math.PI * 2);
-      ctx.fillStyle = colorFor(p.v);
+      ctx.fillStyle = colorFor(point.v);
       ctx.fill();
-      ctx.strokeStyle = "#e6edf7";
-      ctx.lineWidth = 1.5;
+      ctx.strokeStyle = tokens.surfaceLowest;
+      ctx.lineWidth = 2;
       ctx.stroke();
     }
   }
@@ -300,22 +458,45 @@
   function nearestPoint(offsetX) {
     const pts = state.points;
     if (!pts.length) return -1;
-    const pad = { left: 46, right: 14 };
-    const plotW = Math.max(1, width - pad.left - pad.right);
-    const start = state.windowEnd - HOURS * 3600;
+    const plotW = Math.max(1, width - PAD.left - PAD.right);
     const span = HOURS * 3600;
+    const start = state.windowEnd - span;
 
     let best = 0;
-    let bestDist = Infinity;
-    for (let i = 0; i < pts.length; i++) {
-      const x = pad.left + ((pts[i].t - start) / span) * plotW;
-      const d = Math.abs(x - offsetX);
-      if (d < bestDist) {
-        bestDist = d;
+    let bestDistance = Infinity;
+    for (let i = 0; i < pts.length; i += 1) {
+      const x = PAD.left + ((pts[i].t - start) / span) * plotW;
+      const distance = Math.abs(x - offsetX);
+      if (distance < bestDistance) {
+        bestDistance = distance;
         best = i;
       }
     }
-    return bestDist <= 24 ? best : -1;
+    return bestDistance <= 24 ? best : -1;
+  }
+
+  function positionTooltip(index, x) {
+    const point = state.points[index];
+    const plotH = Math.max(1, height - PAD.top - PAD.bottom);
+    const y = PAD.top + (1 - clamp(point.v, 0, 1)) * plotH;
+
+    el.tooltip.innerHTML =
+      `<span class="tooltip-value" style="color:${severityToken(
+        point.v
+      )}">${point.v.toFixed(2)}</span><br>` +
+      `<span class="tooltip-time">${dateTimeFmt.format(
+        new Date(point.t * 1000)
+      )}</span>`;
+    el.tooltip.hidden = false;
+    const tipWidth = el.tooltip.offsetWidth;
+    const tipHeight = el.tooltip.offsetHeight;
+    const left = clamp(
+      x,
+      tipWidth / 2 + 4,
+      width - tipWidth / 2 - 4
+    );
+    el.tooltip.style.left = `${left}px`;
+    el.tooltip.style.top = `${Math.max(y, tipHeight + 20)}px`;
   }
 
   function handleMove(event) {
@@ -333,22 +514,6 @@
     else el.tooltip.hidden = true;
   }
 
-  function positionTooltip(index, x) {
-    const p = state.points[index];
-    const pad = { top: 14, bottom: 28, left: 46, right: 14 };
-    const plotH = Math.max(1, height - pad.top - pad.bottom);
-    const y = pad.top + (1 - clamp(p.v, 0, 1)) * plotH;
-
-    el.tooltip.innerHTML =
-      `<span style="color:${colorFor(p.v)}">${p.v.toFixed(2)}</span>` +
-      `<br>${dateTimeFmt.format(new Date(p.t * 1000))}`;
-    el.tooltip.hidden = false;
-    const tipW = el.tooltip.offsetWidth;
-    const left = clamp(x, tipW / 2 + 4, width - tipW / 2 - 4);
-    el.tooltip.style.left = `${left}px`;
-    el.tooltip.style.top = `${Math.max(y, 34)}px`;
-  }
-
   function handleLeave() {
     if (state.hover === -1) return;
     state.hover = -1;
@@ -356,7 +521,7 @@
     drawChart();
   }
 
-  // ---------------------------------------------------------------- data
+  /* ---------------------------------------------------------------- data */
 
   async function load() {
     try {
@@ -394,20 +559,32 @@
     }, REFRESH_MS);
   }
 
-  drawHeaderDots();
+  /* ----------------------------------------------------------------- init */
+
+  syncThemeButton();
+  readTokens();
   new ResizeObserver(resize).observe(el.chart);
+  resize();
   el.chart.addEventListener("mousemove", handleMove);
   el.chart.addEventListener("mouseleave", handleLeave);
-  el.chart.addEventListener("touchstart", (event) => {
-    if (!event.touches.length) return;
-    const rect = el.chart.getBoundingClientRect();
-    const x = event.touches[0].clientX - rect.left;
-    const index = nearestPoint(x);
-    state.hover = index;
-    drawChart();
-    if (index >= 0) positionTooltip(index, x);
-  });
+  el.chart.addEventListener(
+    "touchstart",
+    (event) => {
+      if (!event.touches.length) return;
+      const rect = el.chart.getBoundingClientRect();
+      const x = event.touches[0].clientX - rect.left;
+      const index = nearestPoint(x);
+      state.hover = index;
+      drawChart();
+      if (index >= 0) positionTooltip(index, x);
+    },
+    { passive: true }
+  );
   el.chart.addEventListener("touchend", handleLeave);
+
+  if (document.fonts && document.fonts.ready) {
+    document.fonts.ready.then(drawChart);
+  }
 
   load().then(schedule);
 })();
