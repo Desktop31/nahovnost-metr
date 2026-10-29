@@ -96,8 +96,12 @@ def test_ingest_stores_optional_comment(client):
     assert created.status_code == 201
     assert created.json()["comment"] == "ranní kontrola"
 
-    latest = client.get("/api/readings?hours=24").json()["latest"]
-    assert latest["comment"] == "ranní kontrola"
+    latest = client.get("/api/readings?hours=24").json()
+    assert latest["latest"]["comment"] == "ranní kontrola"
+    assert any(
+        point.get("c") == "ranní kontrola"
+        for point in latest["points"]
+    )
 
 
 def test_ingest_treats_blank_comment_as_missing(client):

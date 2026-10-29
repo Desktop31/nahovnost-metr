@@ -101,7 +101,7 @@ def readings_window(hours: float) -> tuple[list[dict], dict]:
     since = now - hours * 3600
     with connect() as conn:
         rows = conn.execute(
-            "SELECT id, value, created_at FROM readings "
+            "SELECT id, value, created_at, comment FROM readings "
             "WHERE created_at >= ? ORDER BY created_at ASC, id ASC",
             (since,),
         ).fetchall()
@@ -114,21 +114,35 @@ def readings_window(hours: float) -> tuple[list[dict], dict]:
     points: list[dict]
     if len(rows) > MAX_POINTS:
         bucket = hours * 3600 / MAX_POINTS
-        buckets: dict[int, list[float]] = {}
+        buckets: dict[int, list[tuple[float, str | None]]] = {}
         for row in rows:
             key = int((row["created_at"] - since) / bucket)
-            buckets.setdefault(key, []).append(row["value"])
-        points = [
-            {
+            buckets.setdefault(key, []).append(
+                (row["value"], row["comment"])
+            )
+        points = []
+        for key, samples in sorted(buckets.items()):
+            point = {
                 "t": since + (key + 0.5) * bucket,
-                "v": round(sum(values) / len(values), 6),
+                "v": round(
+                    sum(value for value, _ in samples) / len(samples), 6
+                ),
             }
-            for key, values in sorted(buckets.items())
-        ]
+            # Keep the newest comment in the bucket as hover context.
+            note = next(
+                (note for _, note in reversed(samples) if note),
+                None,
+            )
+            if note:
+                point["c"] = note
+            points.append(point)
     else:
-        points = [
-            {"t": row["created_at"], "v": row["value"]} for row in rows
-        ]
+        points = []
+        for row in rows:
+            point = {"t": row["created_at"], "v": row["value"]}
+            if row["comment"]:
+                point["c"] = row["comment"]
+            points.append(point)
 
     stats = {
         "count": agg["count"] or 0,
