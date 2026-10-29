@@ -83,12 +83,14 @@ def test_readings_returns_latest_and_points(client):
     client.post("/api/readings", json={"value": 0.1}, headers=auth())
     client.post("/api/readings", json={"value": 0.9}, headers=auth())
 
-    payload = client.get("/api/readings?hours=24").json()
-    assert payload["latest"]["value"] == 0.9
-    assert len(payload["points"]) >= 2
-    assert payload["stats"]["count"] >= 2
-    assert payload["stats"]["min"] <= payload["stats"]["avg"] <= payload["stats"]["max"]
-    assert payload["window_hours"] == 24
+    payload = client.get("/api/readings?hours=24")
+    assert payload.headers["cache-control"] == "no-store"
+    body = payload.json()
+    assert body["latest"]["value"] == 0.9
+    assert len(body["points"]) >= 2
+    assert body["stats"]["count"] >= 2
+    assert body["stats"]["min"] <= body["stats"]["avg"] <= body["stats"]["max"]
+    assert body["window_hours"] == 24
 
 
 def test_readings_rejects_invalid_window(client):

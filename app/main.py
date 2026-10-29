@@ -8,7 +8,7 @@ import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Query, status
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Response, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -113,8 +113,10 @@ def create_reading(payload: ReadingIn) -> dict:
 
 @app.get("/api/readings")
 def list_readings(
+    response: Response,
     hours: float = Query(default=24.0, gt=0, le=24 * 365),
 ) -> dict:
+    response.headers["Cache-Control"] = "no-store"
     latest = db.latest_reading()
     points, stats = db.readings_window(hours)
     now = time.time()
