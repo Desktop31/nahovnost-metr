@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hmac
+import mimetypes
 import os
 import time
 from contextlib import asynccontextmanager
@@ -15,6 +16,8 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from . import db
+
+mimetypes.add_type("font/woff2", ".woff2")
 
 STATIC_DIR = Path(__file__).parent / "static"
 API_TOKEN = os.environ.get("API_TOKEN", "")

@@ -35,6 +35,12 @@ def test_dashboard_is_served(client):
     assert "Nahovnost meter" in response.text
 
 
+def test_fonts_are_served_with_correct_media_type(client):
+    response = client.get("/static/fonts/inter-latin-wght-normal.woff2")
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "font/woff2"
+
+
 def test_ingest_requires_token(client):
     assert client.post("/api/readings", json={"value": 0.5}).status_code == 401
     assert (
