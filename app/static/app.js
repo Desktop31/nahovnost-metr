@@ -15,14 +15,16 @@
     statMax: document.getElementById("stat-max"),
     statAvg: document.getElementById("stat-avg"),
     statCount: document.getElementById("stat-count"),
-    live: document.getElementById("live"),
-    liveText: document.getElementById("live-text"),
+    comment: document.getElementById("latest-comment"),
     hint: document.getElementById("chart-hint"),
     empty: document.getElementById("empty"),
     tooltip: document.getElementById("tooltip"),
     lastRefresh: document.getElementById("last-refresh"),
     chart: document.getElementById("chart"),
     themeToggle: document.getElementById("theme-toggle"),
+    helpToggle: document.getElementById("help-toggle"),
+    helpPanel: document.getElementById("api-help"),
+    helpClose: document.getElementById("help-close"),
   };
 
   const state = {
@@ -166,12 +168,6 @@
     return relFmt.format(-Math.round(s / 86400), "day");
   }
 
-  function setLive(ok, text) {
-    el.live.classList.toggle("is-ok", ok);
-    el.live.classList.toggle("is-error", !ok);
-    el.liveText.textContent = text;
-  }
-
   function setStat(node, value) {
     if (value === null || value === undefined) {
       node.textContent = "—";
@@ -198,6 +194,14 @@
         new Date(latest.created_at * 1000)
       )} · ${formatAge(age)}`;
 
+      if (latest.comment) {
+        el.comment.textContent = `Komentář: ${latest.comment}`;
+        el.comment.hidden = false;
+      } else {
+        el.comment.textContent = "";
+        el.comment.hidden = true;
+      }
+
       el.marker.style.left = `${clamp(latest.value, 0, 1) * 100}%`;
       el.marker.classList.add("is-visible");
     } else {
@@ -206,6 +210,8 @@
       el.badge.className = "badge badge--muted";
       el.badge.textContent = "bez dat";
       el.time.textContent = "Zatím nebylo nic naměřeno.";
+      el.comment.textContent = "";
+      el.comment.hidden = true;
       el.marker.classList.remove("is-visible");
     }
 
@@ -263,6 +269,42 @@
   }
 
   el.themeToggle.addEventListener("click", () => applyTheme(!isDark()));
+
+  /* ---------------------------------------------------------------- help */
+
+  function openHelp() {
+    el.helpPanel.hidden = false;
+    el.helpToggle.setAttribute("aria-expanded", "true");
+    el.helpClose.focus();
+  }
+
+  function closeHelp(returnFocus = true) {
+    if (el.helpPanel.hidden) return;
+    const focusInside = el.helpPanel.contains(document.activeElement);
+    el.helpPanel.hidden = true;
+    el.helpToggle.setAttribute("aria-expanded", "false");
+    if (returnFocus || focusInside) el.helpToggle.focus();
+  }
+
+  el.helpToggle.addEventListener("click", () => {
+    if (el.helpPanel.hidden) openHelp();
+    else closeHelp();
+  });
+  el.helpClose.addEventListener("click", () => closeHelp());
+
+  document.addEventListener("click", (event) => {
+    if (
+      !el.helpPanel.hidden &&
+      event.target instanceof Element &&
+      !event.target.closest(".help")
+    ) {
+      closeHelp(false);
+    }
+  });
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && !el.helpPanel.hidden) closeHelp();
+  });
 
   /* -------------------------------------------------------------- canvas */
 
@@ -340,12 +382,13 @@
 
     const start = state.windowEnd - HOURS * 3600;
     const span = HOURS * 3600;
+    const xTicks = plotW < 220 ? 2 : 4;
 
     // Vertical time grid and clock labels.
     ctx.textBaseline = "top";
-    for (let i = 0; i <= 4; i += 1) {
-      const x = PAD.left + (i / 4) * plotW;
-      const t = start + (i / 4) * span;
+    for (let i = 0; i <= xTicks; i += 1) {
+      const x = PAD.left + (i / xTicks) * plotW;
+      const t = start + (i / xTicks) * span;
       ctx.globalAlpha = 0.4;
       ctx.strokeStyle = tokens.outlineVariant;
       ctx.beginPath();
@@ -353,7 +396,8 @@
       ctx.lineTo(x + 0.5, PAD.top + plotH);
       ctx.stroke();
       ctx.globalAlpha = 1;
-      ctx.textAlign = i === 0 ? "left" : i === 4 ? "right" : "center";
+      ctx.textAlign =
+        i === 0 ? "left" : i === xTicks ? "right" : "center";
       ctx.fillStyle = tokens.onSurfaceVariant;
       ctx.fillText(
         timeFmt.format(new Date(t * 1000)),
@@ -542,10 +586,10 @@
 
       renderSummary();
       drawChart();
-      setLive(true, "online");
+      el.lastRefresh.classList.remove("is-error");
     } catch (error) {
       console.error("Nepodařilo se načíst data:", error);
-      setLive(false, "chyba připojení");
+      el.lastRefresh.classList.add("is-error");
       el.lastRefresh.textContent = `Aktualizace selhala ${timeFmt.format(
         new Date()
       )}`;

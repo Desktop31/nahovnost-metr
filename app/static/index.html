@@ -23,7 +23,13 @@
     <header class="topbar">
       <div class="topbar-inner">
         <div class="brand">
-          <div class="brand-mark" aria-hidden="true">N</div>
+          <img
+            class="brand-logo"
+            src="/static/logo-placeholder.svg"
+            alt=""
+            width="40"
+            height="40"
+          />
           <div class="brand-text">
             <h1 class="brand-title">Nahovnost meter</h1>
             <p class="brand-subtitle">
@@ -34,10 +40,6 @@
           </div>
         </div>
         <div class="topbar-actions">
-          <div class="live" id="live" title="Stav připojení">
-            <span class="live-dot"></span
-            ><span id="live-text">připojuji…</span>
-          </div>
           <button
             type="button"
             class="btn btn--outline"
@@ -46,6 +48,95 @@
           >
             Tmavý režim
           </button>
+          <div class="help">
+            <button
+              type="button"
+              class="btn btn--outline btn--icon"
+              id="help-toggle"
+              aria-expanded="false"
+              aria-controls="api-help"
+              aria-label="Nápověda k API"
+              title="Nápověda k API"
+            >
+              <svg
+                viewBox="0 0 24 24"
+                width="24"
+                height="24"
+                fill="currentColor"
+                aria-hidden="true"
+              >
+                <path
+                  d="M11 18h2v-2h-2v2zm1-16C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm0-14c-2.21 0-4 1.79-4 4h2c0-1.1.9-2 2-2s2 .9 2 2c0 2-3 1.75-3 5h2c0-2.25 3-2.5 3-5 0-2.21-1.79-4-4-4z"
+                />
+              </svg>
+            </button>
+
+            <section
+              class="help-panel"
+              id="api-help"
+              role="dialog"
+              aria-modal="false"
+              aria-labelledby="api-help-title"
+              hidden
+            >
+              <div class="help-head">
+                <h2 id="api-help-title">API</h2>
+                <button
+                  type="button"
+                  class="btn btn--outline btn--icon"
+                  id="help-close"
+                  aria-label="Zavřít nápovědu"
+                >
+                  <svg
+                    viewBox="0 0 24 24"
+                    width="24"
+                    height="24"
+                    fill="currentColor"
+                    aria-hidden="true"
+                  >
+                    <path
+                      d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"
+                    />
+                  </svg>
+                </button>
+              </div>
+
+              <p class="help-lead">
+                Čtení je veřejné, zápis chrání token. Hodnota <code>0.00</code>
+                je nejlepší, <code>1.00</code> nejhorší.
+              </p>
+
+              <h3>Zápis hodnoty</h3>
+              <p>
+                <code>POST /api/readings</code> s hlavičkou
+                <code>X-API-Token</code> (nebo
+                <code>Authorization: Bearer</code>). Volitelný
+                <code>comment</code> může mít až 500 znaků.
+              </p>
+              <pre><code>curl -X POST http://localhost:8080/api/readings \
+  -H "Content-Type: application/json" \
+  -H "X-API-Token: $API_TOKEN" \
+  -d '{"value": 0.42, "comment": "ranní kontrola"}'</code></pre>
+
+              <h3>Všechny hodnoty</h3>
+              <p>
+                <code>GET /api/readings/all</code> je veřejné, bez tokenu.
+                Vrací všechna uložená měření vzestupně, včetně komentářů.
+              </p>
+              <pre><code>curl http://localhost:8080/api/readings/all</code></pre>
+              <p class="help-note">
+                Odpověď má tvar
+                <code>{"count": N, "readings": [...]}</code>. Komentáře jsou
+                součástí veřejných dat.
+              </p>
+
+              <h3>Dokumentace</h3>
+              <p>
+                Interaktivní OpenAPI dokumentace je na
+                <a href="/docs" target="_blank" rel="noreferrer">/docs</a>.
+              </p>
+            </section>
+          </div>
         </div>
       </div>
     </header>
@@ -59,9 +150,12 @@
               <span class="value" id="latest-value">—</span>
               <span class="badge badge--muted" id="latest-badge">bez dat</span>
             </div>
-            <p class="latest-time" id="latest-time">
-              Zatím nebylo nic naměřeno.
-            </p>
+            <div class="latest-meta">
+              <p class="latest-time" id="latest-time">
+                Zatím nebylo nic naměřeno.
+              </p>
+              <p class="latest-comment" id="latest-comment" hidden></p>
+            </div>
             <div class="scale" aria-hidden="true">
               <div class="scale-bar"></div>
               <div class="scale-labels">
@@ -112,19 +206,6 @@
               Za posledních 24 hodin nejsou žádná data.
             </div>
           </div>
-        </section>
-
-        <section class="card api-note">
-          <h2>Zápis dat</h2>
-          <p>
-            Hodnoty v rozsahu <code>0.00–1.00</code> se posílají na
-            <code>POST /api/readings</code> s hlavičkou
-            <code>X-API-Token</code> (nebo <code>Authorization: Bearer</code>).
-          </p>
-          <pre><code>curl -X POST http://localhost:8080/api/readings \
-  -H "Content-Type: application/json" \
-  -H "X-API-Token: $API_TOKEN" \
-  -d '{"value": 0.42}'</code></pre>
         </section>
       </main>
 
