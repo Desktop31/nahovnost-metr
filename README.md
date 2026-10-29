@@ -68,6 +68,18 @@ zprůměrují na maximálně 1500 bodů, statistika vždy počítá ze všech vz
 
 Data jsou v pojmenovaném Docker volume `data`, takže přežijí restart i rebuild.
 
+## Vzhled
+
+UI vychází z projektového design systému: Material 3 paleta jako CSS tokeny
+(`--color-*` v `:root` a `.dark`), Manrope pro nadpisy a čísla, Inter pro text,
+karty `rounded-xl` s `border-outline-variant` a `shadow-sm`, světlý režim jako
+výchozí a tmavý režim přes tlačítko v hlavičce (volba se ukládá do
+`localStorage`). Graf čte barvy z tokenů za běhu, takže se přepíná spolu s
+motivem. Fonty jsou self-hostované v `app/static/fonts` (licence SIL OFL).
+
+Frontend zůstává bez build kroku, proto tokeny spotřebovává přímo CSS místo
+Tailwind `@theme`; nevzniká tím druhá sada hodnot.
+
 ## Vývoj bez Dockeru
 
 ```bash
@@ -93,8 +105,9 @@ app/
   db.py            SQLite schéma, zápis, dotazy, downsampling
   static/
     index.html     dashboard
-    style.css
-    app.js         načítání dat a canvasový graf
+    style.css      design tokeny, světlý a tmavý režim
+    app.js         načítání dat, canvasový graf, přepínání motivu
+    fonts/         Inter a Manrope (SIL OFL)
 Dockerfile
 docker-compose.yml
 ```
