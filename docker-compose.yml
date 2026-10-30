@@ -1,8 +1,8 @@
 services:
   meter:
     build: .
-    image: nahovnost-meter:latest
-    container_name: nahovnost-meter
+    image: nahovnost-metr:latest
+    container_name: nahovnost-metr
     ports:
       - "${PORT:-8080}:8000"
     environment:

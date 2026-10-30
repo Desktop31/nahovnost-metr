@@ -1,4 +1,4 @@
-# Nahovnost meter
+# Nahovnost metr
 
 Jednoduchá webová aplikace pro sběr hodnot v rozsahu **0.00–1.00** přes HTTP API.
 Hodnoty se ukládají do SQLite a dashboard zobrazuje nejnovější měření, statistiky

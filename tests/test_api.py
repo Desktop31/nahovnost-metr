@@ -34,7 +34,7 @@ def test_health(client):
 def test_dashboard_is_served(client):
     response = client.get("/")
     assert response.status_code == 200
-    assert "Nahovnost meter" in response.text
+    assert "Nahovnost metr" in response.text
 
 
 def test_fonts_are_served_with_correct_media_type(client):
