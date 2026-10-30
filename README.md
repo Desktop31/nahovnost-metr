@@ -139,7 +139,7 @@ app/
     index.html     dashboard
     style.css      design tokeny, světlý a tmavý režim
     app.js         načítání dat, canvasový graf, přepínání motivu
-    logo-placeholder.svg  dočasné logo (1:1, nahraditelné)
+    logo.svg       logo (1:1, nahraditelné)
     fonts/         Inter a Manrope (SIL OFL)
 Dockerfile
 docker-compose.yml
