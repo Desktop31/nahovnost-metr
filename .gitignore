@@ -4,6 +4,7 @@ data/
 *.db
 *.db-wal
 *.db-shm
+meters.json
 
 # Python
 __pycache__/
