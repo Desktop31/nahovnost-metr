@@ -22,7 +22,7 @@
   <body>
     <header class="topbar">
       <div class="topbar-inner">
-        <div class="brand">
+        <a class="brand" href="/" aria-label="Přehled všech měřidel">
           <img
             class="brand-logo"
             src="/static/logo.png"
@@ -38,7 +38,7 @@
               <span class="legend-dot legend-dot--worst"></span>1.00 nejhorší
             </p>
           </div>
-        </div>
+        </a>
         <div class="topbar-actions">
           <button
             type="button"
@@ -102,32 +102,45 @@
               </div>
 
               <p class="help-lead">
-                Čtení je veřejné, zápis chrání token. Hodnota <code>0.00</code>
-                je nejlepší, <code>1.00</code> nejhorší.
+                Každé měřidlo má vlastní API a vlastní token. Čtení je veřejné,
+                zápis chrání token daného měřidla.
               </p>
+
+              <h3>Měřidla a tokeny</h3>
+              <p>
+                Měřidla určuje <code>meters.json</code> ve stejném volume jako
+                databáze, v kontejneru <code>/data/meters.json</code>. Token
+                nahraďte dlouhým náhodným řetězcem.
+              </p>
+              <pre><code>{
+  "meters": [
+    {"slug": "sklad", "name": "Sklad", "token": "dlouhy-nahodny-token"}
+  ]
+}</code></pre>
 
               <h3>Zápis hodnoty</h3>
               <p>
-                <code>POST /api/readings</code> s hlavičkou
+                <code>POST /api/meters/{slug}/readings</code> s hlavičkou
                 <code>X-API-Token</code> (nebo
                 <code>Authorization: Bearer</code>). Volitelný
                 <code>comment</code> může mít až 500 znaků.
               </p>
-              <pre><code>curl -X POST http://localhost:8080/api/readings \
+              <pre><code>curl -X POST http://localhost:8080/api/meters/$SLUG/readings \
   -H "Content-Type: application/json" \
-  -H "X-API-Token: $API_TOKEN" \
+  -H "X-API-Token: $METER_TOKEN" \
   -d '{"value": 0.42, "comment": "ranní kontrola"}'</code></pre>
 
-              <h3>Všechny hodnoty</h3>
+              <h3>Čtení</h3>
               <p>
-                <code>GET /api/readings/all</code> je veřejné, bez tokenu.
-                Vrací všechna uložená měření vzestupně, včetně komentářů.
+                <code>GET /api/meters</code> vrátí seznam měřidel bez tokenů.
+                <code>GET /api/meters/{slug}/readings?hours=24</code> data pro
+                graf a <code>GET /api/meters/{slug}/readings/all</code> všechna
+                uložená měření včetně komentářů.
               </p>
-              <pre><code>curl http://localhost:8080/api/readings/all</code></pre>
+              <pre><code>curl http://localhost:8080/api/meters
+curl http://localhost:8080/api/meters/$SLUG/readings/all</code></pre>
               <p class="help-note">
-                Odpověď má tvar
-                <code>{"count": N, "readings": [...]}</code>. Komentáře jsou
-                součástí veřejných dat.
+                Komentáře jsou součástí veřejných dat.
               </p>
 
               <h3>Dokumentace</h3>
@@ -142,82 +155,129 @@
     </header>
 
     <div class="page">
-      <main class="content">
-        <section class="cards">
-          <article class="card card--latest">
-            <h2>Aktuální hodnota</h2>
-            <div class="latest-row">
-              <span class="value" id="latest-value">—</span>
-              <span class="badge badge--muted" id="latest-badge">bez dat</span>
-            </div>
-            <div class="latest-meta">
-              <p class="latest-time" id="latest-time">
-                Zatím nebylo nic naměřeno.
-              </p>
-              <p class="latest-comment" id="latest-comment" hidden></p>
-            </div>
-            <div class="scale" aria-hidden="true">
-              <div class="scale-bar"></div>
-              <div class="scale-labels">
-                <span>0.00 nejlepší</span>
-                <span>0.50</span>
-                <span>1.00 nejhorší</span>
-              </div>
-              <div class="scale-marker" id="scale-marker"></div>
-            </div>
-          </article>
+      <main class="content" id="overview-view" hidden>
+        <div class="overview-head">
+          <div>
+            <h2>Všechna měřidla</h2>
+            <p>Hodnoty a průběhy za posledních 24 hodin.</p>
+          </div>
+          <span class="overview-count" id="meter-count" hidden></span>
+        </div>
+        <p class="overview-status" id="overview-status">Načítám měřidla…</p>
+        <section
+          class="meter-grid"
+          id="meter-grid"
+          aria-label="Přehled měřidel"
+        ></section>
+        <section class="card overview-empty" id="overview-empty" hidden>
+          <h2>Zatím žádná měřidla</h2>
+          <p>
+            Přidejte měřidla do <code>meters.json</code> ve stejném volume jako
+            databáze (v kontejneru <code>/data/meters.json</code>) a obnovte
+            stránku.
+          </p>
+          <pre><code>{
+  "meters": [
+    {"slug": "default", "name": "Výchozí", "token": "dlouhy-nahodny-token"}
+  ]
+}</code></pre>
+        </section>
+      </main>
 
-          <article class="card">
-            <h2>Posledních 24 hodin</h2>
-            <dl class="stat-grid">
-              <div class="stat">
-                <dt>Minimum</dt>
-                <dd id="stat-min">—</dd>
-              </div>
-              <div class="stat">
-                <dt>Maximum</dt>
-                <dd id="stat-max">—</dd>
-              </div>
-              <div class="stat">
-                <dt>Průměr</dt>
-                <dd id="stat-avg">—</dd>
-              </div>
-              <div class="stat">
-                <dt>Vzorků</dt>
-                <dd id="stat-count">0</dd>
-              </div>
-            </dl>
-          </article>
+      <main class="content" id="detail-view" hidden>
+        <div class="detail-head">
+          <a class="back-link" href="/">← Všechna měřidla</a>
+          <div class="detail-title">
+            <h2 id="meter-title">Měřidlo</h2>
+            <p id="meter-description" hidden></p>
+          </div>
+        </div>
+
+        <section class="card detail-error" id="detail-error" hidden>
+          <h2 id="detail-error-title">Měřidlo se nepodařilo načíst</h2>
+          <p id="detail-error-text"></p>
+          <p><a class="back-link" href="/">Zpět na přehled</a></p>
         </section>
 
-        <section class="card chart-card">
-          <div class="chart-head">
-            <h2>Průběh za posledních 24 hodin</h2>
-            <span class="chart-hint" id="chart-hint"></span>
-          </div>
-          <div class="chart-live" id="chart-live">
-            <div class="chart-hover is-empty" id="chart-hover">
-              <div class="chart-hover-head">
-                <span class="chart-hover-label">Komentář</span>
-                <span class="chart-hover-meta" id="hover-meta">—</span>
+        <div class="detail-content" id="detail-content">
+          <section class="cards">
+            <article class="card card--latest">
+              <h2>Aktuální hodnota</h2>
+              <div class="latest-row">
+                <span class="value" id="latest-value">—</span>
+                <span class="badge badge--muted" id="latest-badge"
+                  >bez dat</span
+                >
               </div>
-              <p class="chart-hover-text" id="hover-text">
-                Přejeďte grafem pro zobrazení komentáře.
-              </p>
+              <div class="latest-meta">
+                <p class="latest-time" id="latest-time">
+                  Zatím nebylo nic naměřeno.
+                </p>
+                <p class="latest-comment" id="latest-comment" hidden></p>
+              </div>
+              <div class="scale" aria-hidden="true">
+                <div class="scale-bar"></div>
+                <div class="scale-labels">
+                  <span>0.00 nejlepší</span>
+                  <span>0.50</span>
+                  <span>1.00 nejhorší</span>
+                </div>
+                <div class="scale-marker" id="scale-marker"></div>
+              </div>
+            </article>
+
+            <article class="card">
+              <h2>Posledních 24 hodin</h2>
+              <dl class="stat-grid">
+                <div class="stat">
+                  <dt>Minimum</dt>
+                  <dd id="stat-min">—</dd>
+                </div>
+                <div class="stat">
+                  <dt>Maximum</dt>
+                  <dd id="stat-max">—</dd>
+                </div>
+                <div class="stat">
+                  <dt>Průměr</dt>
+                  <dd id="stat-avg">—</dd>
+                </div>
+                <div class="stat">
+                  <dt>Vzorků</dt>
+                  <dd id="stat-count">0</dd>
+                </div>
+              </dl>
+            </article>
+          </section>
+
+          <section class="card chart-card">
+            <div class="chart-head">
+              <h2>Průběh za posledních 24 hodin</h2>
+              <span class="chart-hint" id="chart-hint"></span>
             </div>
-            <div class="chart-wrap">
-              <canvas
-                id="chart"
-                role="img"
-                aria-label="Graf hodnot za posledních 24 hodin"
-              ></canvas>
-              <div class="tooltip" id="tooltip" hidden></div>
-              <div class="empty pattern-dots" id="empty" hidden>
-                Za posledních 24 hodin nejsou žádná data.
+            <div class="chart-live" id="chart-live">
+              <div class="chart-hover is-empty" id="chart-hover">
+                <div class="chart-hover-head">
+                  <span class="chart-hover-label">Komentář</span>
+                  <span class="chart-hover-meta" id="hover-meta">—</span>
+                </div>
+                <p class="chart-hover-text" id="hover-text">
+                  Přejeďte grafem pro zobrazení komentáře.
+                </p>
+              </div>
+              <div class="chart-wrap">
+                <canvas
+                  id="chart"
+                  role="img"
+                  aria-label="Graf hodnot za posledních 24 hodin"
+                ></canvas>
+                <div class="tooltip" id="tooltip" hidden></div>
+                <div class="empty pattern-dots" id="empty" hidden>
+                  Za posledních 24 hodin nejsou žádná data.
+                </div>
               </div>
             </div>
-          </div>
-        </section>
+          </section>
+        </div>
       </main>
 
       <footer class="footer">

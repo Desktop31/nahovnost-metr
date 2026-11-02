@@ -5,8 +5,31 @@
   const HOURS = 24;
   const THEME_KEY = "nahovnost-theme";
   const PAD = { top: 16, right: 16, bottom: 32, left: 48 };
+  const MINI_PAD = { top: 10, right: 10, bottom: 8, left: 36 };
+
+  const pathMatch = window.location.pathname.match(/^\/m\/([^/]+)\/?$/);
+  let currentSlug = null;
+  if (pathMatch) {
+    try {
+      currentSlug = decodeURIComponent(pathMatch[1]);
+    } catch (error) {
+      currentSlug = pathMatch[1];
+    }
+  }
+  const isDetail = currentSlug !== null;
 
   const el = {
+    overviewView: document.getElementById("overview-view"),
+    detailView: document.getElementById("detail-view"),
+    meterGrid: document.getElementById("meter-grid"),
+    meterCount: document.getElementById("meter-count"),
+    overviewStatus: document.getElementById("overview-status"),
+    overviewEmpty: document.getElementById("overview-empty"),
+    meterTitle: document.getElementById("meter-title"),
+    meterDescription: document.getElementById("meter-description"),
+    detailError: document.getElementById("detail-error"),
+    detailErrorText: document.getElementById("detail-error-text"),
+    detailContent: document.getElementById("detail-content"),
     value: document.getElementById("latest-value"),
     badge: document.getElementById("latest-badge"),
     time: document.getElementById("latest-time"),
@@ -39,6 +62,10 @@
     hover: -1,
     fetchedAt: 0,
   };
+
+  const overviewCharts = [];
+  let overviewObserver = null;
+  let activeRedraw = () => {};
 
   const timeFmt = new Intl.DateTimeFormat("cs-CZ", {
     hour: "2-digit",
@@ -143,7 +170,7 @@
   }
 
   function badgeFor(value) {
-    if (value === null) {
+    if (value === null || value === undefined) {
       return { className: "badge--muted", label: "bez dat" };
     }
     if (value < 0.2) {
@@ -164,12 +191,684 @@
   /* --------------------------------------------------------------- text */
 
   function formatAge(seconds) {
-    if (seconds === null || !Number.isFinite(seconds)) return "";
-    const s = Math.max(0, Math.round(seconds));
+    if (seconds === null || seconds === undefined) return "";
+    if (!Number.isFinite(Number(seconds))) return "";
+    const s = Math.max(0, Math.round(Number(seconds)));
     if (s < 60) return relFmt.format(-s, "second");
     if (s < 3600) return relFmt.format(-Math.round(s / 60), "minute");
     if (s < 86400) return relFmt.format(-Math.round(s / 3600), "hour");
     return relFmt.format(-Math.round(s / 86400), "day");
+  }
+
+  function meterCountLabel(count) {
+    if (count === 1) return "1 měřidlo";
+    if (count >= 2 && count <= 4) return `${count} měřidla`;
+    return `${count} měřidel`;
+  }
+
+  function setRefresh(ok, text) {
+    el.lastRefresh.classList.toggle("is-error", !ok);
+    el.lastRefresh.textContent =
+      text || `${ok ? "Aktualizováno" : "Aktualizace selhala"} ${timeFmt.format(new Date())}`;
+  }
+
+  async function fetchJSON(url) {
+    const response = await fetch(url, {
+      headers: { Accept: "application/json" },
+      cache: "no-store",
+    });
+    if (!response.ok) {
+      let detail = `HTTP ${response.status}`;
+      try {
+        const body = await response.json();
+        if (typeof body.detail === "string") detail = body.detail;
+      } catch (error) {
+        /* keep the status message */
+      }
+      const error = new Error(detail);
+      error.status = response.status;
+      throw error;
+    }
+    return response.json();
+  }
+
+  /* --------------------------------------------------------------- theme */
+
+  function isDark() {
+    return document.documentElement.classList.contains("dark");
+  }
+
+  function syncThemeButton() {
+    const dark = isDark();
+    el.themeToggle.setAttribute("aria-pressed", String(dark));
+    el.themeToggle.textContent = dark ? "Světlý režim" : "Tmavý režim";
+  }
+
+  function applyTheme(dark) {
+    document.documentElement.classList.toggle("dark", dark);
+    try {
+      localStorage.setItem(THEME_KEY, dark ? "dark" : "light");
+    } catch (error) {
+      /* keep the toggle working without persistence */
+    }
+    syncThemeButton();
+    readTokens();
+    activeRedraw();
+  }
+
+  el.themeToggle.addEventListener("click", () => applyTheme(!isDark()));
+
+  /* ---------------------------------------------------------------- help */
+
+  function openHelp() {
+    el.helpPanel.hidden = false;
+    el.helpToggle.setAttribute("aria-expanded", "true");
+    el.helpClose.focus();
+  }
+
+  function closeHelp(returnFocus = true) {
+    if (el.helpPanel.hidden) return;
+    const focusInside = el.helpPanel.contains(document.activeElement);
+    el.helpPanel.hidden = true;
+    el.helpToggle.setAttribute("aria-expanded", "false");
+    if (returnFocus || focusInside) el.helpToggle.focus();
+  }
+
+  el.helpToggle.addEventListener("click", () => {
+    if (el.helpPanel.hidden) openHelp();
+    else closeHelp();
+  });
+  el.helpClose.addEventListener("click", () => closeHelp());
+
+  document.addEventListener("click", (event) => {
+    if (
+      !el.helpPanel.hidden &&
+      event.target instanceof Element &&
+      !event.target.closest(".help")
+    ) {
+      closeHelp(false);
+    }
+  });
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && !el.helpPanel.hidden) closeHelp();
+  });
+
+  /* --------------------------------------------------------- overview UI */
+
+  function makeNode(tag, className, text) {
+    const node = document.createElement(tag);
+    if (className) node.className = className;
+    if (text !== undefined) node.textContent = text;
+    return node;
+  }
+
+  function addMiniStat(container, label, value) {
+    const item = makeNode("span");
+    item.append(document.createTextNode(`${label} `));
+    const strong = makeNode(
+      "strong",
+      null,
+      Number.isFinite(value) ? value.toFixed(2) : "—"
+    );
+    item.append(strong);
+    container.append(item);
+  }
+
+  function buildMeterCard(result) {
+    const { meter, data, error } = result;
+    const latest = data && data.latest ? data.latest : null;
+    const stats = data ? data.stats : null;
+    const points = data && Array.isArray(data.points) ? data.points : [];
+
+    const card = makeNode("a", "card meter-card");
+    card.href = `/m/${encodeURIComponent(meter.slug)}`;
+    card.dataset.slug = meter.slug;
+    card.setAttribute("aria-label", `Otevřít detail měřidla ${meter.name}`);
+
+    const head = makeNode("div", "meter-card-head");
+    const heading = makeNode("div", "meter-card-heading");
+    heading.append(makeNode("h3", "meter-card-title", meter.name));
+    if (meter.description) {
+      heading.append(
+        makeNode("p", "meter-card-description", meter.description)
+      );
+    }
+    const badge = makeNode("span", "badge");
+    const badgeData = error
+      ? { className: "badge--error", label: "chyba" }
+      : badgeFor(latest ? latest.value : null);
+    badge.className = `badge ${badgeData.className}`;
+    badge.textContent = badgeData.label;
+    head.append(heading, badge);
+
+    const valueRow = makeNode("div", "meter-card-value");
+    const value = makeNode("span", "value", latest ? latest.value.toFixed(2) : "—");
+    if (latest) value.style.color = severityToken(latest.value);
+    const age = makeNode(
+      "span",
+      "meter-card-age",
+      latest ? formatAge(data.latest_age_seconds) : "zatím bez měření"
+    );
+    valueRow.append(value, age);
+
+    const chartBox = makeNode("div", "meter-card-chart");
+    const canvas = makeNode("canvas");
+    canvas.setAttribute("role", "img");
+    canvas.setAttribute(
+      "aria-label",
+      `Graf měřidla ${meter.name} za posledních 24 hodin`
+    );
+    const empty = makeNode(
+      "div",
+      "meter-chart-empty",
+      error
+        ? "Data se nepodařilo načíst."
+        : "Za posledních 24 hodin nejsou data."
+    );
+    empty.hidden = Boolean(points.length && !error);
+    chartBox.append(canvas, empty);
+
+    const foot = makeNode("div", "meter-card-foot");
+    const statsBox = makeNode("div", "meter-card-stats");
+    if (stats && stats.count > 0) {
+      addMiniStat(statsBox, "min", stats.min);
+      addMiniStat(statsBox, "průměr", stats.avg);
+      addMiniStat(statsBox, "max", stats.max);
+    } else {
+      statsBox.textContent = "bez statistik";
+    }
+    const link = makeNode("span", "meter-card-link", "Detail →");
+    foot.append(statsBox, link);
+
+    card.append(head, valueRow, chartBox, foot);
+
+    overviewCharts.push({
+      canvas,
+      points,
+      windowEnd: data ? data.server_time : Date.now() / 1000,
+      empty,
+    });
+    return card;
+  }
+
+  function renderOverview(results) {
+    const activeSlug =
+      document.activeElement instanceof Element
+        ? document.activeElement.closest(".meter-card")?.dataset.slug
+        : null;
+
+    if (overviewObserver) overviewObserver.disconnect();
+    overviewCharts.length = 0;
+
+    const fragment = document.createDocumentFragment();
+    results.forEach((result) => fragment.append(buildMeterCard(result)));
+    el.meterGrid.replaceChildren(fragment);
+
+    if (activeSlug) {
+      const activeCard = el.meterGrid.querySelector(
+        `.meter-card[data-slug="${activeSlug}"]`
+      );
+      if (activeCard) activeCard.focus({ preventScroll: true });
+    }
+
+    overviewObserver = new ResizeObserver((entries) => {
+      entries.forEach((entry) => {
+        const chart = overviewCharts.find(
+          (item) => item.canvas === entry.target
+        );
+        if (chart) drawMiniChart(chart);
+      });
+    });
+    overviewCharts.forEach((chart) => overviewObserver.observe(chart.canvas));
+    overviewCharts.forEach(drawMiniChart);
+  }
+
+  function redrawOverview() {
+    overviewCharts.forEach(drawMiniChart);
+  }
+
+  function drawMiniChart(chart) {
+    const { canvas, points, windowEnd, empty } = chart;
+    const rect = canvas.getBoundingClientRect();
+    if (!rect.width || !rect.height || !tokens.success) return;
+
+    const dpr = window.devicePixelRatio || 1;
+    const width = Math.max(1, rect.width);
+    const height = Math.max(1, rect.height);
+    canvas.width = Math.round(width * dpr);
+    canvas.height = Math.round(height * dpr);
+    const ctx = canvas.getContext("2d");
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, width, height);
+
+    const plotW = Math.max(1, width - MINI_PAD.left - MINI_PAD.right);
+    const plotH = Math.max(1, height - MINI_PAD.top - MINI_PAD.bottom);
+    const yFor = (value) =>
+      MINI_PAD.top + (1 - clamp(value, 0, 1)) * plotH;
+    const plotRadius = parseFloat(tokens.radiusLg) || 8;
+    const font = `500 12px ${tokens.fontSans}`;
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.roundRect(
+      MINI_PAD.left,
+      MINI_PAD.top,
+      plotW,
+      plotH,
+      plotRadius
+    );
+    ctx.clip();
+    ctx.fillStyle = tokens.surfaceLow;
+    ctx.fillRect(MINI_PAD.left, MINI_PAD.top, plotW, plotH);
+
+    const bands = ctx.createLinearGradient(
+      0,
+      MINI_PAD.top,
+      0,
+      MINI_PAD.top + plotH
+    );
+    bands.addColorStop(0, translucent(tokens.errorContainer, 0.42));
+    bands.addColorStop(0.5, translucent(tokens.surfaceLow, 0));
+    bands.addColorStop(1, translucent(tokens.successContainer, 0.42));
+    ctx.fillStyle = bands;
+    ctx.fillRect(MINI_PAD.left, MINI_PAD.top, plotW, plotH);
+    ctx.restore();
+
+    ctx.font = font;
+    ctx.textAlign = "right";
+    ctx.textBaseline = "middle";
+    [0, 0.5, 1].forEach((value) => {
+      const y = yFor(value);
+      ctx.globalAlpha = 0.55;
+      ctx.strokeStyle = tokens.outlineVariant;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(MINI_PAD.left, y + 0.5);
+      ctx.lineTo(MINI_PAD.left + plotW, y + 0.5);
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = tokens.onSurfaceVariant;
+      ctx.fillText(value.toFixed(2), MINI_PAD.left - 8, y);
+    });
+
+    if (!points.length) {
+      empty.hidden = false;
+      return;
+    }
+    empty.hidden = true;
+
+    const span = HOURS * 3600;
+    const start = windowEnd - span;
+    const xFor = (t) =>
+      MINI_PAD.left +
+      clamp(((t - start) / span) * plotW, 0, plotW);
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.roundRect(
+      MINI_PAD.left,
+      MINI_PAD.top,
+      plotW,
+      plotH,
+      plotRadius
+    );
+    ctx.clip();
+    ctx.beginPath();
+    points.forEach((point, index) => {
+      const x = xFor(point.t);
+      const y = yFor(point.v);
+      if (index === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    });
+    ctx.lineTo(xFor(points[points.length - 1].t), MINI_PAD.top + plotH);
+    ctx.lineTo(xFor(points[0].t), MINI_PAD.top + plotH);
+    ctx.closePath();
+    const area = ctx.createLinearGradient(
+      0,
+      MINI_PAD.top,
+      0,
+      MINI_PAD.top + plotH
+    );
+    area.addColorStop(0, translucent(tokens.errorContainer, 0.32));
+    area.addColorStop(1, translucent(tokens.successContainer, 0.32));
+    ctx.fillStyle = area;
+    ctx.fill();
+    ctx.restore();
+
+    const line = ctx.createLinearGradient(
+      0,
+      MINI_PAD.top,
+      0,
+      MINI_PAD.top + plotH
+    );
+    line.addColorStop(0, tokens.error);
+    line.addColorStop(0.5, tokens.secondary);
+    line.addColorStop(1, tokens.success);
+    ctx.beginPath();
+    points.forEach((point, index) => {
+      const x = xFor(point.t);
+      const y = yFor(point.v);
+      if (index === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    });
+    ctx.strokeStyle = line;
+    ctx.lineWidth = 2;
+    ctx.lineJoin = "round";
+    ctx.lineCap = "round";
+    ctx.stroke();
+  }
+
+  async function loadOverview() {
+    if (!el.meterGrid.childElementCount) {
+      el.overviewStatus.hidden = false;
+      el.overviewStatus.classList.remove("is-error");
+      el.overviewStatus.textContent = "Načítám měřidla…";
+    }
+
+    try {
+      const list = await fetchJSON("/api/meters");
+      const meters = Array.isArray(list.meters) ? list.meters : [];
+      const results = await Promise.all(
+        meters.map(async (meter) => {
+          try {
+            const data = await fetchJSON(
+              `/api/meters/${encodeURIComponent(meter.slug)}/readings?hours=${HOURS}`
+            );
+            return { meter, data, error: null };
+          } catch (error) {
+            return { meter, data: null, error };
+          }
+        })
+      );
+
+      if (!meters.length) {
+        if (overviewObserver) overviewObserver.disconnect();
+        overviewCharts.length = 0;
+        el.meterGrid.replaceChildren();
+        el.meterCount.hidden = true;
+        el.overviewEmpty.hidden = false;
+        el.overviewStatus.hidden = true;
+      } else {
+        el.meterCount.textContent = meterCountLabel(meters.length);
+        el.meterCount.hidden = false;
+        el.overviewEmpty.hidden = true;
+        el.overviewStatus.hidden = true;
+        renderOverview(results);
+      }
+      el.overviewStatus.classList.remove("is-error");
+      setRefresh(true);
+    } catch (error) {
+      console.error("Nepodařilo se načíst měřidla:", error);
+      el.overviewStatus.hidden = false;
+      el.overviewStatus.classList.add("is-error");
+      el.overviewStatus.textContent = "Měřidla se nepodařilo načíst.";
+      el.overviewStatus.title = error.message;
+      setRefresh(false);
+    }
+  }
+
+  function initOverview() {
+    el.detailView.hidden = true;
+    el.overviewView.hidden = false;
+    document.title = "Přehled · Nahovnost metr";
+    activeRedraw = redrawOverview;
+    loadOverview();
+    scheduleRefresh(loadOverview);
+  }
+
+  /* ---------------------------------------------------------- detail UI */
+
+  let width = 0;
+  let height = 0;
+  const ctx = el.chart.getContext("2d");
+
+  function resize() {
+    const rect = el.chart.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+    width = Math.max(1, rect.width);
+    height = Math.max(1, rect.height);
+    el.chart.width = Math.round(width * dpr);
+    el.chart.height = Math.round(height * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    drawChart();
+  }
+
+  function xFor(t, plotW) {
+    const span = HOURS * 3600;
+    const x = ((t - (state.windowEnd - span)) / span) * plotW;
+    return PAD.left + clamp(x, 0, plotW);
+  }
+
+  function drawChart() {
+    ctx.clearRect(0, 0, width, height);
+    if (!width || !height || !tokens.success) return;
+
+    const plotW = Math.max(1, width - PAD.left - PAD.right);
+    const plotH = Math.max(1, height - PAD.top - PAD.bottom);
+    const yFor = (value) =>
+      PAD.top + (1 - clamp(value, 0, 1)) * plotH;
+    const plotRadius = parseFloat(tokens.radiusLg) || 8;
+    const font = `500 12px ${tokens.fontSans}`;
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.roundRect(PAD.left, PAD.top, plotW, plotH, plotRadius);
+    ctx.clip();
+    ctx.fillStyle = tokens.surfaceLow;
+    ctx.fillRect(PAD.left, PAD.top, plotW, plotH);
+
+    const bands = ctx.createLinearGradient(
+      0,
+      PAD.top,
+      0,
+      PAD.top + plotH
+    );
+    bands.addColorStop(0, translucent(tokens.errorContainer, 0.42));
+    bands.addColorStop(0.5, translucent(tokens.surfaceLow, 0));
+    bands.addColorStop(1, translucent(tokens.successContainer, 0.42));
+    ctx.fillStyle = bands;
+    ctx.fillRect(PAD.left, PAD.top, plotW, plotH);
+    ctx.restore();
+
+    ctx.font = font;
+    ctx.textAlign = "right";
+    ctx.textBaseline = "middle";
+    for (let i = 0; i <= 4; i += 1) {
+      const value = i / 4;
+      const y = yFor(value);
+      ctx.globalAlpha = i === 0 || i === 4 ? 0.9 : 0.55;
+      ctx.strokeStyle = tokens.outlineVariant;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(PAD.left, y + 0.5);
+      ctx.lineTo(PAD.left + plotW, y + 0.5);
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = tokens.onSurfaceVariant;
+      ctx.fillText(value.toFixed(2), PAD.left - 10, y);
+    }
+
+    const start = state.windowEnd - HOURS * 3600;
+    const span = HOURS * 3600;
+    const xTicks = plotW < 220 ? 2 : 4;
+
+    ctx.textBaseline = "top";
+    for (let i = 0; i <= xTicks; i += 1) {
+      const x = PAD.left + (i / xTicks) * plotW;
+      const t = start + (i / xTicks) * span;
+      ctx.globalAlpha = 0.4;
+      ctx.strokeStyle = tokens.outlineVariant;
+      ctx.beginPath();
+      ctx.moveTo(x + 0.5, PAD.top);
+      ctx.lineTo(x + 0.5, PAD.top + plotH);
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+      ctx.textAlign =
+        i === 0 ? "left" : i === xTicks ? "right" : "center";
+      ctx.fillStyle = tokens.onSurfaceVariant;
+      ctx.fillText(
+        timeFmt.format(new Date(t * 1000)),
+        x,
+        PAD.top + plotH + 10
+      );
+    }
+
+    if (!state.points.length) return;
+
+    const pts = state.points;
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.roundRect(PAD.left, PAD.top, plotW, plotH, plotRadius);
+    ctx.clip();
+    ctx.beginPath();
+    pts.forEach((point, index) => {
+      const x = xFor(point.t, plotW);
+      const y = yFor(point.v);
+      if (index === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    });
+    ctx.lineTo(xFor(pts[pts.length - 1].t, plotW), PAD.top + plotH);
+    ctx.lineTo(xFor(pts[0].t, plotW), PAD.top + plotH);
+    ctx.closePath();
+    const area = ctx.createLinearGradient(
+      0,
+      PAD.top,
+      0,
+      PAD.top + plotH
+    );
+    area.addColorStop(0, translucent(tokens.errorContainer, 0.32));
+    area.addColorStop(1, translucent(tokens.successContainer, 0.32));
+    ctx.fillStyle = area;
+    ctx.fill();
+    ctx.restore();
+
+    const line = ctx.createLinearGradient(0, PAD.top, 0, PAD.top + plotH);
+    line.addColorStop(0, tokens.error);
+    line.addColorStop(0.5, tokens.secondary);
+    line.addColorStop(1, tokens.success);
+    ctx.beginPath();
+    pts.forEach((point, index) => {
+      const x = xFor(point.t, plotW);
+      const y = yFor(point.v);
+      if (index === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    });
+    ctx.strokeStyle = line;
+    ctx.lineWidth = 2.5;
+    ctx.lineJoin = "round";
+    ctx.lineCap = "round";
+    ctx.stroke();
+
+    if (pts.length <= 240) {
+      ctx.strokeStyle = tokens.surfaceLow;
+      ctx.lineWidth = 1.5;
+      pts.forEach((point) => {
+        ctx.beginPath();
+        ctx.arc(
+          xFor(point.t, plotW),
+          yFor(point.v),
+          2.6,
+          0,
+          Math.PI * 2
+        );
+        ctx.fillStyle = colorFor(point.v);
+        ctx.fill();
+        ctx.stroke();
+      });
+    }
+
+    if (state.hover >= 0 && state.hover < pts.length) {
+      const point = pts[state.hover];
+      const x = xFor(point.t, plotW);
+      const y = yFor(point.v);
+      ctx.globalAlpha = 0.3;
+      ctx.strokeStyle = tokens.onSurface;
+      ctx.lineWidth = 1;
+      ctx.setLineDash([3, 4]);
+      ctx.beginPath();
+      ctx.moveTo(x, PAD.top);
+      ctx.lineTo(x, PAD.top + plotH);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.globalAlpha = 1;
+      ctx.beginPath();
+      ctx.arc(x, y, 4.5, 0, Math.PI * 2);
+      ctx.fillStyle = colorFor(point.v);
+      ctx.fill();
+      ctx.strokeStyle = tokens.surfaceLowest;
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    }
+  }
+
+  function nearestPoint(offsetX) {
+    const pts = state.points;
+    if (!pts.length) return -1;
+    const plotW = Math.max(1, width - PAD.left - PAD.right);
+    const span = HOURS * 3600;
+    const start = state.windowEnd - span;
+
+    let best = 0;
+    let bestDistance = Infinity;
+    for (let i = 0; i < pts.length; i += 1) {
+      const x = PAD.left + ((pts[i].t - start) / span) * plotW;
+      const distance = Math.abs(x - offsetX);
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        best = i;
+      }
+    }
+    return bestDistance <= 24 ? best : -1;
+  }
+
+  function positionTooltip(index, x) {
+    const point = state.points[index];
+    const plotH = Math.max(1, height - PAD.top - PAD.bottom);
+    const y = PAD.top + (1 - clamp(point.v, 0, 1)) * plotH;
+
+    el.tooltip.innerHTML =
+      `<span class="tooltip-value" style="color:${severityToken(
+        point.v
+      )}">${point.v.toFixed(2)}</span><br>` +
+      `<span class="tooltip-time">${dateTimeFmt.format(
+        new Date(point.t * 1000)
+      )}</span>`;
+    el.tooltip.hidden = false;
+    const tipWidth = el.tooltip.offsetWidth;
+    const tipHeight = el.tooltip.offsetHeight;
+    const left = clamp(x, tipWidth / 2 + 4, width - tipWidth / 2 - 4);
+    el.tooltip.style.left = `${left}px`;
+    el.tooltip.style.top = `${Math.max(y, tipHeight + 20)}px`;
+  }
+
+  function handleMove(event) {
+    if (!state.points.length) return;
+    const rect = el.chart.getBoundingClientRect();
+    const x = event.clientX - rect.left;
+    const index = nearestPoint(x);
+    if (index === state.hover) {
+      if (index >= 0) positionTooltip(index, x);
+      return;
+    }
+    state.hover = index;
+    drawChart();
+    if (index >= 0) {
+      positionTooltip(index, x);
+      showHoverInfo(state.points[index]);
+    } else {
+      el.tooltip.hidden = true;
+      resetHoverInfo();
+    }
+  }
+
+  function handleLeave() {
+    if (state.hover === -1) return;
+    state.hover = -1;
+    el.tooltip.hidden = true;
+    resetHoverInfo();
+    drawChart();
   }
 
   const HOVER_IDLE = "Přejeďte grafem pro zobrazení komentáře.";
@@ -261,349 +960,14 @@
     }
 
     el.empty.hidden = shown > 0;
-    el.lastRefresh.textContent = `Aktualizováno ${timeFmt.format(
-      new Date(state.fetchedAt || Date.now())
-    )}`;
+    setRefresh(true);
   }
 
-  /* --------------------------------------------------------------- theme */
-
-  function isDark() {
-    return document.documentElement.classList.contains("dark");
-  }
-
-  function syncThemeButton() {
-    const dark = isDark();
-    el.themeToggle.setAttribute("aria-pressed", String(dark));
-    el.themeToggle.textContent = dark ? "Světlý režim" : "Tmavý režim";
-  }
-
-  function applyTheme(dark) {
-    document.documentElement.classList.toggle("dark", dark);
+  async function loadDetail() {
     try {
-      localStorage.setItem(THEME_KEY, dark ? "dark" : "light");
-    } catch (error) {
-      /* keep the toggle working without persistence */
-    }
-    syncThemeButton();
-    readTokens();
-    drawChart();
-  }
-
-  el.themeToggle.addEventListener("click", () => applyTheme(!isDark()));
-
-  /* ---------------------------------------------------------------- help */
-
-  function openHelp() {
-    el.helpPanel.hidden = false;
-    el.helpToggle.setAttribute("aria-expanded", "true");
-    el.helpClose.focus();
-  }
-
-  function closeHelp(returnFocus = true) {
-    if (el.helpPanel.hidden) return;
-    const focusInside = el.helpPanel.contains(document.activeElement);
-    el.helpPanel.hidden = true;
-    el.helpToggle.setAttribute("aria-expanded", "false");
-    if (returnFocus || focusInside) el.helpToggle.focus();
-  }
-
-  el.helpToggle.addEventListener("click", () => {
-    if (el.helpPanel.hidden) openHelp();
-    else closeHelp();
-  });
-  el.helpClose.addEventListener("click", () => closeHelp());
-
-  document.addEventListener("click", (event) => {
-    if (
-      !el.helpPanel.hidden &&
-      event.target instanceof Element &&
-      !event.target.closest(".help")
-    ) {
-      closeHelp(false);
-    }
-  });
-
-  document.addEventListener("keydown", (event) => {
-    if (event.key === "Escape" && !el.helpPanel.hidden) closeHelp();
-  });
-
-  /* -------------------------------------------------------------- canvas */
-
-  const ctx = el.chart.getContext("2d");
-  let width = 0;
-  let height = 0;
-
-  function resize() {
-    const rect = el.chart.getBoundingClientRect();
-    const dpr = window.devicePixelRatio || 1;
-    width = Math.max(1, rect.width);
-    height = Math.max(1, rect.height);
-    el.chart.width = Math.round(width * dpr);
-    el.chart.height = Math.round(height * dpr);
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    drawChart();
-  }
-
-  function xFor(t, plotW) {
-    const span = HOURS * 3600;
-    const x = ((t - (state.windowEnd - span)) / span) * plotW;
-    return PAD.left + clamp(x, 0, plotW);
-  }
-
-  function drawChart() {
-    ctx.clearRect(0, 0, width, height);
-    if (!width || !height || !tokens.success) return;
-
-    const plotW = Math.max(1, width - PAD.left - PAD.right);
-    const plotH = Math.max(1, height - PAD.top - PAD.bottom);
-    const yFor = (value) =>
-      PAD.top + (1 - clamp(value, 0, 1)) * plotH;
-    const plotRadius = parseFloat(tokens.radiusLg) || 8;
-    const font = `500 12px ${tokens.fontSans}`;
-
-    // Plot surface, stepping up from the card surface.
-    ctx.save();
-    ctx.beginPath();
-    ctx.roundRect(PAD.left, PAD.top, plotW, plotH, plotRadius);
-    ctx.clip();
-    ctx.fillStyle = tokens.surfaceLow;
-    ctx.fillRect(PAD.left, PAD.top, plotW, plotH);
-
-    const bands = ctx.createLinearGradient(
-      0,
-      PAD.top,
-      0,
-      PAD.top + plotH
-    );
-    bands.addColorStop(0, translucent(tokens.errorContainer, 0.42));
-    bands.addColorStop(0.5, translucent(tokens.surfaceLow, 0));
-    bands.addColorStop(1, translucent(tokens.successContainer, 0.42));
-    ctx.fillStyle = bands;
-    ctx.fillRect(PAD.left, PAD.top, plotW, plotH);
-    ctx.restore();
-
-    // Horizontal grid and value labels.
-    ctx.font = font;
-    ctx.textAlign = "right";
-    ctx.textBaseline = "middle";
-    for (let i = 0; i <= 4; i += 1) {
-      const value = i / 4;
-      const y = yFor(value);
-      ctx.globalAlpha = i === 0 || i === 4 ? 0.9 : 0.55;
-      ctx.strokeStyle = tokens.outlineVariant;
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.moveTo(PAD.left, y + 0.5);
-      ctx.lineTo(PAD.left + plotW, y + 0.5);
-      ctx.stroke();
-      ctx.globalAlpha = 1;
-      ctx.fillStyle = tokens.onSurfaceVariant;
-      ctx.fillText(value.toFixed(2), PAD.left - 10, y);
-    }
-
-    const start = state.windowEnd - HOURS * 3600;
-    const span = HOURS * 3600;
-    const xTicks = plotW < 220 ? 2 : 4;
-
-    // Vertical time grid and clock labels.
-    ctx.textBaseline = "top";
-    for (let i = 0; i <= xTicks; i += 1) {
-      const x = PAD.left + (i / xTicks) * plotW;
-      const t = start + (i / xTicks) * span;
-      ctx.globalAlpha = 0.4;
-      ctx.strokeStyle = tokens.outlineVariant;
-      ctx.beginPath();
-      ctx.moveTo(x + 0.5, PAD.top);
-      ctx.lineTo(x + 0.5, PAD.top + plotH);
-      ctx.stroke();
-      ctx.globalAlpha = 1;
-      ctx.textAlign =
-        i === 0 ? "left" : i === xTicks ? "right" : "center";
-      ctx.fillStyle = tokens.onSurfaceVariant;
-      ctx.fillText(
-        timeFmt.format(new Date(t * 1000)),
-        x,
-        PAD.top + plotH + 10
+      const data = await fetchJSON(
+        `/api/meters/${encodeURIComponent(currentSlug)}/readings?hours=${HOURS}`
       );
-    }
-
-    if (!state.points.length) return;
-
-    const pts = state.points;
-
-    // Area beneath the series.
-    ctx.save();
-    ctx.beginPath();
-    ctx.roundRect(PAD.left, PAD.top, plotW, plotH, plotRadius);
-    ctx.clip();
-    ctx.beginPath();
-    pts.forEach((point, index) => {
-      const x = xFor(point.t, plotW);
-      const y = yFor(point.v);
-      if (index === 0) ctx.moveTo(x, y);
-      else ctx.lineTo(x, y);
-    });
-    ctx.lineTo(xFor(pts[pts.length - 1].t, plotW), PAD.top + plotH);
-    ctx.lineTo(xFor(pts[0].t, plotW), PAD.top + plotH);
-    ctx.closePath();
-    const area = ctx.createLinearGradient(
-      0,
-      PAD.top,
-      0,
-      PAD.top + plotH
-    );
-    area.addColorStop(0, translucent(tokens.errorContainer, 0.32));
-    area.addColorStop(1, translucent(tokens.successContainer, 0.32));
-    ctx.fillStyle = area;
-    ctx.fill();
-    ctx.restore();
-
-    // Series line: red high, amber mid, green low.
-    const line = ctx.createLinearGradient(0, PAD.top, 0, PAD.top + plotH);
-    line.addColorStop(0, tokens.error);
-    line.addColorStop(0.5, tokens.secondary);
-    line.addColorStop(1, tokens.success);
-    ctx.beginPath();
-    pts.forEach((point, index) => {
-      const x = xFor(point.t, plotW);
-      const y = yFor(point.v);
-      if (index === 0) ctx.moveTo(x, y);
-      else ctx.lineTo(x, y);
-    });
-    ctx.strokeStyle = line;
-    ctx.lineWidth = 2.5;
-    ctx.lineJoin = "round";
-    ctx.lineCap = "round";
-    ctx.stroke();
-
-    // Individual samples when the series is sparse enough to read.
-    if (pts.length <= 240) {
-      ctx.strokeStyle = tokens.surfaceLow;
-      ctx.lineWidth = 1.5;
-      pts.forEach((point) => {
-        ctx.beginPath();
-        ctx.arc(
-          xFor(point.t, plotW),
-          yFor(point.v),
-          2.6,
-          0,
-          Math.PI * 2
-        );
-        ctx.fillStyle = colorFor(point.v);
-        ctx.fill();
-        ctx.stroke();
-      });
-    }
-
-    // Hover crosshair.
-    if (state.hover >= 0 && state.hover < pts.length) {
-      const point = pts[state.hover];
-      const x = xFor(point.t, plotW);
-      const y = yFor(point.v);
-      ctx.globalAlpha = 0.3;
-      ctx.strokeStyle = tokens.onSurface;
-      ctx.lineWidth = 1;
-      ctx.setLineDash([3, 4]);
-      ctx.beginPath();
-      ctx.moveTo(x, PAD.top);
-      ctx.lineTo(x, PAD.top + plotH);
-      ctx.stroke();
-      ctx.setLineDash([]);
-      ctx.globalAlpha = 1;
-      ctx.beginPath();
-      ctx.arc(x, y, 4.5, 0, Math.PI * 2);
-      ctx.fillStyle = colorFor(point.v);
-      ctx.fill();
-      ctx.strokeStyle = tokens.surfaceLowest;
-      ctx.lineWidth = 2;
-      ctx.stroke();
-    }
-  }
-
-  function nearestPoint(offsetX) {
-    const pts = state.points;
-    if (!pts.length) return -1;
-    const plotW = Math.max(1, width - PAD.left - PAD.right);
-    const span = HOURS * 3600;
-    const start = state.windowEnd - span;
-
-    let best = 0;
-    let bestDistance = Infinity;
-    for (let i = 0; i < pts.length; i += 1) {
-      const x = PAD.left + ((pts[i].t - start) / span) * plotW;
-      const distance = Math.abs(x - offsetX);
-      if (distance < bestDistance) {
-        bestDistance = distance;
-        best = i;
-      }
-    }
-    return bestDistance <= 24 ? best : -1;
-  }
-
-  function positionTooltip(index, x) {
-    const point = state.points[index];
-    const plotH = Math.max(1, height - PAD.top - PAD.bottom);
-    const y = PAD.top + (1 - clamp(point.v, 0, 1)) * plotH;
-
-    el.tooltip.innerHTML =
-      `<span class="tooltip-value" style="color:${severityToken(
-        point.v
-      )}">${point.v.toFixed(2)}</span><br>` +
-      `<span class="tooltip-time">${dateTimeFmt.format(
-        new Date(point.t * 1000)
-      )}</span>`;
-    el.tooltip.hidden = false;
-    const tipWidth = el.tooltip.offsetWidth;
-    const tipHeight = el.tooltip.offsetHeight;
-    const left = clamp(
-      x,
-      tipWidth / 2 + 4,
-      width - tipWidth / 2 - 4
-    );
-    el.tooltip.style.left = `${left}px`;
-    el.tooltip.style.top = `${Math.max(y, tipHeight + 20)}px`;
-  }
-
-  function handleMove(event) {
-    if (!state.points.length) return;
-    const rect = el.chart.getBoundingClientRect();
-    const x = event.clientX - rect.left;
-    const index = nearestPoint(x);
-    if (index === state.hover) {
-      if (index >= 0) positionTooltip(index, x);
-      return;
-    }
-    state.hover = index;
-    drawChart();
-    if (index >= 0) {
-      positionTooltip(index, x);
-      showHoverInfo(state.points[index]);
-    } else {
-      el.tooltip.hidden = true;
-      resetHoverInfo();
-    }
-  }
-
-  function handleLeave() {
-    if (state.hover === -1) return;
-    state.hover = -1;
-    el.tooltip.hidden = true;
-    resetHoverInfo();
-    drawChart();
-  }
-
-  /* ---------------------------------------------------------------- data */
-
-  async function load() {
-    try {
-      const response = await fetch(`/api/readings?hours=${HOURS}`, {
-        headers: { Accept: "application/json" },
-        cache: "no-store",
-      });
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      const data = await response.json();
-
       state.points = Array.isArray(data.points) ? data.points : [];
       state.stats = data.stats || null;
       state.latest = data.latest || null;
@@ -613,22 +977,90 @@
       el.tooltip.hidden = true;
       resetHoverInfo();
 
+      el.detailContent.hidden = false;
+      el.detailError.hidden = true;
       renderSummary();
       drawChart();
-      el.lastRefresh.classList.remove("is-error");
     } catch (error) {
-      console.error("Nepodařilo se načíst data:", error);
-      el.lastRefresh.classList.add("is-error");
-      el.lastRefresh.textContent = `Aktualizace selhala ${timeFmt.format(
-        new Date()
-      )}`;
+      console.error("Nepodařilo se načíst data měřidla:", error);
+      if (error.status === 404 || error.status === 503) {
+        showDetailError(error);
+      } else {
+        setRefresh(false);
+      }
     }
   }
 
-  function schedule() {
+  function showDetailError(error) {
+    el.detailContent.hidden = true;
+    el.detailError.hidden = false;
+    el.detailErrorText.textContent =
+      error.status === 404
+        ? "Měřidlo s tímto slugem v konfiguraci neexistuje. Zkontrolujte meters.json."
+        : error.message || "Zkontrolujte konfiguraci měřidel.";
+    el.meterTitle.textContent = "Měřidlo";
+    el.meterDescription.hidden = true;
+    document.title = "Měřidlo nenalezeno · Nahovnost metr";
+    setRefresh(false, `Načtení selhalo ${timeFmt.format(new Date())}`);
+  }
+
+  async function initDetail() {
+    el.overviewView.hidden = true;
+    el.detailView.hidden = false;
+    activeRedraw = drawChart;
+
+    new ResizeObserver(resize).observe(el.chart);
+    el.chart.addEventListener("mousemove", handleMove);
+    el.chartLive.addEventListener("mouseleave", handleLeave);
+    el.chart.addEventListener(
+      "touchstart",
+      (event) => {
+        if (!event.touches.length) return;
+        const rect = el.chart.getBoundingClientRect();
+        const x = event.touches[0].clientX - rect.left;
+        const index = nearestPoint(x);
+        state.hover = index;
+        drawChart();
+        if (index >= 0) {
+          positionTooltip(index, x);
+          showHoverInfo(state.points[index]);
+        } else {
+          el.tooltip.hidden = true;
+          resetHoverInfo();
+        }
+      },
+      { passive: true }
+    );
+    el.chart.addEventListener("touchend", () => {
+      el.tooltip.hidden = true;
+    });
+
+    try {
+      const meta = await fetchJSON(
+        `/api/meters/${encodeURIComponent(currentSlug)}`
+      );
+      el.meterTitle.textContent = meta.name;
+      if (meta.description) {
+        el.meterDescription.textContent = meta.description;
+        el.meterDescription.hidden = false;
+      } else {
+        el.meterDescription.hidden = true;
+      }
+      document.title = `${meta.name} · Nahovnost metr`;
+      el.detailError.hidden = true;
+      el.detailContent.hidden = false;
+      resize();
+      await loadDetail();
+      scheduleRefresh(loadDetail);
+    } catch (error) {
+      showDetailError(error);
+    }
+  }
+
+  function scheduleRefresh(refresh) {
     window.setTimeout(async () => {
-      if (!document.hidden) await load();
-      schedule();
+      if (!document.hidden) await refresh();
+      scheduleRefresh(refresh);
     }, REFRESH_MS);
   }
 
@@ -636,37 +1068,10 @@
 
   syncThemeButton();
   readTokens();
-  resetHoverInfo();
-  new ResizeObserver(resize).observe(el.chart);
-  resize();
-  el.chart.addEventListener("mousemove", handleMove);
-  el.chartLive.addEventListener("mouseleave", handleLeave);
-  el.chart.addEventListener(
-    "touchstart",
-    (event) => {
-      if (!event.touches.length) return;
-      const rect = el.chart.getBoundingClientRect();
-      const x = event.touches[0].clientX - rect.left;
-      const index = nearestPoint(x);
-      state.hover = index;
-      drawChart();
-      if (index >= 0) {
-        positionTooltip(index, x);
-        showHoverInfo(state.points[index]);
-      } else {
-        el.tooltip.hidden = true;
-        resetHoverInfo();
-      }
-    },
-    { passive: true }
-  );
-  el.chart.addEventListener("touchend", () => {
-    el.tooltip.hidden = true;
-  });
+  if (isDetail) initDetail();
+  else initOverview();
 
   if (document.fonts && document.fonts.ready) {
-    document.fonts.ready.then(drawChart);
+    document.fonts.ready.then(() => activeRedraw());
   }
-
-  load().then(schedule);
 })();
