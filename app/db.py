@@ -27,31 +27,44 @@ def init_db() -> None:
             """
             CREATE TABLE IF NOT EXISTS readings (
                 id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                meter      TEXT NOT NULL DEFAULT 'default',
                 value      REAL NOT NULL CHECK (value >= 0.0 AND value <= 1.0),
                 created_at REAL NOT NULL,
                 comment    TEXT
             )
             """
         )
-        # Existing databases predate the optional comment column.
+        # Existing databases predate meters and the optional comment column.
         columns = {
             row["name"]
             for row in conn.execute("PRAGMA table_info(readings)").fetchall()
         }
+        if "meter" not in columns:
+            conn.execute(
+                "ALTER TABLE readings "
+                "ADD COLUMN meter TEXT NOT NULL DEFAULT 'default'"
+            )
         if "comment" not in columns:
             conn.execute("ALTER TABLE readings ADD COLUMN comment TEXT")
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_readings_created_at "
             "ON readings (created_at)"
         )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_readings_meter_created_at "
+            "ON readings (meter, created_at)"
+        )
 
 
-def add_reading(value: float, comment: str | None = None) -> dict:
+def add_reading(
+    meter: str, value: float, comment: str | None = None
+) -> dict:
     now = time.time()
     with connect() as conn:
         cur = conn.execute(
-            "INSERT INTO readings (value, created_at, comment) VALUES (?, ?, ?)",
-            (value, now, comment),
+            "INSERT INTO readings (meter, value, created_at, comment) "
+            "VALUES (?, ?, ?, ?)",
+            (meter, value, now, comment),
         )
         reading_id = cur.lastrowid
         # Bounded storage: drop everything past the retention window.
@@ -61,6 +74,7 @@ def add_reading(value: float, comment: str | None = None) -> dict:
         )
     return {
         "id": reading_id,
+        "meter": meter,
         "value": value,
         "created_at": now,
         "comment": comment,
@@ -70,45 +84,50 @@ def add_reading(value: float, comment: str | None = None) -> dict:
 def _row_to_reading(row: sqlite3.Row) -> dict:
     return {
         "id": row["id"],
+        "meter": row["meter"],
         "value": row["value"],
         "created_at": row["created_at"],
         "comment": row["comment"],
     }
 
 
-def latest_reading() -> dict | None:
+def latest_reading(meter: str) -> dict | None:
     with connect() as conn:
         row = conn.execute(
-            "SELECT id, value, created_at, comment FROM readings "
-            "ORDER BY created_at DESC, id DESC LIMIT 1"
+            "SELECT id, meter, value, created_at, comment FROM readings "
+            "WHERE meter = ? ORDER BY created_at DESC, id DESC LIMIT 1",
+            (meter,),
         ).fetchone()
     return _row_to_reading(row) if row else None
 
 
-def all_readings() -> list[dict]:
-    """Every stored reading, oldest first, including comments."""
+def all_readings(meter: str) -> list[dict]:
+    """Every stored reading for one meter, oldest first."""
     with connect() as conn:
         rows = conn.execute(
-            "SELECT id, value, created_at, comment FROM readings "
-            "ORDER BY created_at ASC, id ASC"
+            "SELECT id, meter, value, created_at, comment FROM readings "
+            "WHERE meter = ? ORDER BY created_at ASC, id ASC",
+            (meter,),
         ).fetchall()
     return [_row_to_reading(row) for row in rows]
 
 
-def readings_window(hours: float) -> tuple[list[dict], dict]:
-    """Return readings from the last `hours`, downsampled when dense."""
+def readings_window(meter: str, hours: float) -> tuple[list[dict], dict]:
+    """Return one meter's readings, downsampled when dense."""
     now = time.time()
     since = now - hours * 3600
     with connect() as conn:
         rows = conn.execute(
-            "SELECT id, value, created_at, comment FROM readings "
-            "WHERE created_at >= ? ORDER BY created_at ASC, id ASC",
-            (since,),
+            "SELECT id, meter, value, created_at, comment FROM readings "
+            "WHERE meter = ? AND created_at >= ? "
+            "ORDER BY created_at ASC, id ASC",
+            (meter, since),
         ).fetchall()
         agg = conn.execute(
             "SELECT COUNT(*) AS count, MIN(value) AS min, MAX(value) AS max, "
-            "AVG(value) AS avg FROM readings WHERE created_at >= ?",
-            (since,),
+            "AVG(value) AS avg FROM readings "
+            "WHERE meter = ? AND created_at >= ?",
+            (meter, since),
         ).fetchone()
 
     points: list[dict]

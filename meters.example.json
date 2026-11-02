@@ -1,0 +1,16 @@
+{
+  "meters": [
+    {
+      "slug": "default",
+      "name": "Výchozí měřidlo",
+      "description": "Data z původní jednoduché verze",
+      "token": "replace-me-with-a-long-random-token"
+    },
+    {
+      "slug": "sklad",
+      "name": "Sklad",
+      "description": "Teplota a vlhkost ve skladu",
+      "token": "replace-me-with-another-random-token"
+    }
+  ]
+}

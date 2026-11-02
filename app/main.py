@@ -1,10 +1,9 @@
-"""Nahovnost meter: token-protected ingest API plus a small read-only dashboard."""
+"""Multi-meter ingest API and dashboard."""
 
 from __future__ import annotations
 
 import hmac
 import mimetypes
-import os
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -15,21 +14,20 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, field_validator
 
-from . import db
+from . import config, db
+from .config import ConfigError, Meter
 
 mimetypes.add_type("font/woff2", ".woff2")
 
 STATIC_DIR = Path(__file__).parent / "static"
-API_TOKEN = os.environ.get("API_TOKEN", "")
 
 
 def _validate_config() -> None:
-    if not API_TOKEN:
-        raise RuntimeError(
-            "API_TOKEN is not set. Set it in the environment (see .env.example)."
-        )
-    if len(API_TOKEN) < 8:
-        raise RuntimeError("API_TOKEN must be at least 8 characters long.")
+    try:
+        config.ensure_config()
+        config.load_meters()
+    except ConfigError as error:
+        raise RuntimeError(str(error)) from error
 
 
 @asynccontextmanager
@@ -40,8 +38,8 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="Nahovnost meter",
-    version="1.1.0",
+    title="Nahovnost metr",
+    version="2.0.0",
     lifespan=lifespan,
 )
 
@@ -66,22 +64,40 @@ async def validation_error_handler(
     return JSONResponse(status_code=422, content={"detail": errors})
 
 
-def require_token(
+def get_meter(slug: str) -> Meter:
+    try:
+        meter = config.find_meter(slug)
+    except ConfigError as error:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(error),
+        ) from error
+    if meter is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Unknown meter: {slug}",
+        )
+    return meter
+
+
+def authorized_meter(
+    meter: Meter = Depends(get_meter),
     x_api_token: str | None = Header(default=None),
     authorization: str | None = Header(default=None),
-) -> None:
-    """Accept either `X-API-Token: <token>` or `Authorization: Bearer <token>`."""
+) -> Meter:
+    """Accept `X-API-Token` or `Authorization: Bearer` for this meter."""
     supplied = x_api_token
     if not supplied and authorization:
         scheme, _, credentials = authorization.partition(" ")
         if scheme.lower() == "bearer":
             supplied = credentials.strip()
-    if not supplied or not hmac.compare_digest(supplied, API_TOKEN):
+    if not supplied or not hmac.compare_digest(supplied, meter.token):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Missing or invalid API token.",
             headers={"WWW-Authenticate": "Bearer"},
         )
+    return meter
 
 
 class ReadingIn(BaseModel):
@@ -108,6 +124,7 @@ class ReadingIn(BaseModel):
 
 class ReadingOut(BaseModel):
     id: int
+    meter: str
     value: float
     created_at: float
     comment: str | None = None
@@ -115,29 +132,59 @@ class ReadingOut(BaseModel):
 
 @app.get("/api/health")
 def health() -> dict:
-    return {"status": "ok", "time": time.time()}
+    try:
+        meters = config.load_meters()
+    except ConfigError as error:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(error),
+        ) from error
+    return {"status": "ok", "meters": len(meters), "time": time.time()}
+
+
+@app.get("/api/meters")
+def list_meters(response: Response) -> dict:
+    response.headers["Cache-Control"] = "no-store"
+    try:
+        meters = config.load_meters()
+    except ConfigError as error:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(error),
+        ) from error
+    return {"meters": [meter.public() for meter in meters]}
+
+
+@app.get("/api/meters/{slug}")
+def meter_info(response: Response, meter: Meter = Depends(get_meter)) -> dict:
+    response.headers["Cache-Control"] = "no-store"
+    return meter.public()
 
 
 @app.post(
-    "/api/readings",
+    "/api/meters/{slug}/readings",
     response_model=ReadingOut,
     status_code=status.HTTP_201_CREATED,
-    dependencies=[Depends(require_token)],
 )
-def create_reading(payload: ReadingIn) -> dict:
-    return db.add_reading(payload.value, payload.comment)
+def create_reading(
+    payload: ReadingIn,
+    meter: Meter = Depends(authorized_meter),
+) -> dict:
+    return db.add_reading(meter.slug, payload.value, payload.comment)
 
 
-@app.get("/api/readings")
+@app.get("/api/meters/{slug}/readings")
 def list_readings(
     response: Response,
     hours: float = Query(default=24.0, gt=0, le=24 * 365),
+    meter: Meter = Depends(get_meter),
 ) -> dict:
     response.headers["Cache-Control"] = "no-store"
-    latest = db.latest_reading()
-    points, stats = db.readings_window(hours)
+    latest = db.latest_reading(meter.slug)
+    points, stats = db.readings_window(meter.slug, hours)
     now = time.time()
     return {
+        "meter": meter.public(),
         "latest": latest,
         "latest_age_seconds": (now - latest["created_at"]) if latest else None,
         "window_hours": hours,
@@ -147,17 +194,29 @@ def list_readings(
     }
 
 
-@app.get("/api/readings/all")
-def list_all_readings(response: Response) -> dict:
-    """Public export of every retained reading, oldest first."""
+@app.get("/api/meters/{slug}/readings/all")
+def list_all_readings(
+    response: Response,
+    meter: Meter = Depends(get_meter),
+) -> dict:
+    """Public export of every retained reading for one meter."""
     response.headers["Cache-Control"] = "no-store"
-    readings = db.all_readings()
-    return {"count": len(readings), "readings": readings}
+    readings = db.all_readings(meter.slug)
+    return {"meter": meter.public(), "count": len(readings), "readings": readings}
+
+
+def _dashboard_file() -> FileResponse:
+    return FileResponse(STATIC_DIR / "index.html")
 
 
 @app.get("/", include_in_schema=False)
 def dashboard() -> FileResponse:
-    return FileResponse(STATIC_DIR / "index.html")
+    return _dashboard_file()
+
+
+@app.get("/m/{slug}", include_in_schema=False)
+def meter_dashboard(slug: str) -> FileResponse:
+    return _dashboard_file()
 
 
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
