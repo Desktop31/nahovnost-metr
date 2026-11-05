@@ -140,6 +140,77 @@ Token se po úspěšném zápisu uloží do `localStorage` prohlížeče pod kl�
 něj je tlačítko **Smazat uložený token**. Token se neposílá do prohlížeče ze
 serveru; uživatel ho zadává sám.
 
+## Migrace starých databází
+
+Nová databáze má jeden soubor a sloupec `meter`. Každou starou
+jednoměřidlovou databázi importujte zvlášť pod jiným slugem. Skript
+`app.import_legacy` zachová `value`, `created_at` i `comment`, doplní `meter` a
+při opakování přeskočí již importované řádky.
+
+Nejprve zastavte staré aplikace. Pokud jejich SQLite používal WAL, vytvořte
+konzistentní kopii (pro každou starou DB):
+
+```bash
+python3 - <<'PY'
+import sqlite3
+src = sqlite3.connect("stara1.db")
+dst = sqlite3.connect("stara1-kopie.db")
+src.backup(dst)
+dst.close()
+src.close()
+PY
+```
+
+Pokud stará DB leží v Docker volume, zkopírujte ji po zastavení původního
+kontejneru přes `docker cp stary-kontejner:/data/readings.db ./stara1.db` a
+teprve pak vytvořte záložní kopii výše.
+
+Potom jednou inicializujte novou instanci a zastavte ji:
+
+```bash
+docker compose up -d --build
+docker compose stop meter
+docker cp nahovnost-metr:/data/readings.db ./readings-backup.db
+```
+
+Import opakujte pro každou starou databázi:
+
+```bash
+docker compose run --rm \
+  -v "$PWD/stara1-kopie.db:/tmp/stara1.db:ro" \
+  meter python -m app.import_legacy \
+  --source /tmp/stara1.db --target /data/readings.db --meter domov
+
+docker compose run --rm \
+  -v "$PWD/stara2-kopie.db:/tmp/stara2.db:ro" \
+  meter python -m app.import_legacy \
+  --source /tmp/stara2.db --target /data/readings.db --meter chalupa
+```
+
+Nakonec přidejte oba slugy a jejich tokeny do `meters.json` ve volume a
+spusťte aplikaci:
+
+```bash
+docker cp nahovnost-metr:/data/meters.json ./meters.json
+# upravit meters.json
+docker cp ./meters.json nahovnost-metr:/data/meters.json
+docker compose up -d
+```
+
+Tokeny se z databáze migrovat nedají – stará verze je měla v `API_TOKEN` v
+prostředí. Použijte známé tokeny, nebo vygenerujte nové a upravte klienty.
+
+Poznámky:
+
+- Import je idempotentní: opakované spuštění stejné DB přeskočí duplicity
+  podle kombinace měřidlo + čas + hodnota + komentář.
+- Pokud už zdroj obsahuje sloupec `meter`, vyberte zdrojový slug přes
+  `--source-meter`.
+- Starší data než `RETENTION_DAYS` (výchozí 30 dní) aplikace smaže při dalším
+  zápisu. Pokud je potřebujete, zvyšte `RETENTION_DAYS` ještě před startem.
+- Bez Dockeru stačí spustit stejný modul ručně:
+  `METERS_CONFIG=data/meters.json DB_PATH=data/readings.db python -m app.import_legacy --source stara1.db --meter domov`.
+
 ## Konfigurace
 
 | Proměnná         | Výchozí             | Význam                                      |
@@ -188,6 +259,7 @@ pytest -q
 app/
   main.py          FastAPI aplikace, autentizace, API
   config.py        načítání a validace meters.json
+  import_legacy.py import staré jednoměřidlové SQLite DB
   db.py            SQLite schéma, zápis, dotazy, downsampling
   static/
     index.html     přehled měřidel + detail

@@ -89,7 +89,12 @@ METERS_CONFIG=data/meters.json DB_PATH=data/readings.db \
   and `DB_PATH` before importing the app; keep that import order.
 - All tests share one temporary SQLite DB. Do not assume an empty table; insert
   data inside the test and use assertions tolerant of earlier rows.
-- Config tests monkeypatch `config.CONFIG_PATH` and call `config.reset_cache()`.
+- Config tests monkeypatch `config.CONFIG_PATH` and call
+  `config.reset_cache()`.
+- Legacy import: `python -m app.import_legacy --source old.db --meter slug`
+  imports one legacy DB idempotently and preserves timestamps/comments. It
+  temporarily swaps `db.DB_PATH`; do not run it against a live target if you
+  cannot tolerate SQLite write locking.
 
 ## Docker
 
