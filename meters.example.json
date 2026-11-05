@@ -4,12 +4,14 @@
       "slug": "default",
       "name": "Výchozí měřidlo",
       "description": "Data z původní jednoduché verze",
+      "color": "#d99a2b",
       "token": "replace-me-with-a-long-random-token"
     },
     {
       "slug": "sklad",
       "name": "Sklad",
       "description": "Teplota a vlhkost ve skladu",
+      "color": "#4f9d69",
       "token": "replace-me-with-another-random-token"
     }
   ]

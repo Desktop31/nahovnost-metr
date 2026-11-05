@@ -13,6 +13,7 @@ METERS = [
         "slug": "alpha",
         "name": "Alpha",
         "description": "První měřidlo",
+        "color": "#4f9d69",
         "token": "alpha-token-0123456789",
     },
     {
@@ -83,11 +84,14 @@ def test_meters_are_public_but_tokens_are_not(client):
     meters = response.json()["meters"]
     assert [meter["slug"] for meter in meters] == ["alpha", "beta"]
     assert meters[0]["name"] == "Alpha"
+    assert meters[0]["color"] == "#4f9d69"
+    assert meters[1]["color"] is None
     assert all("token" not in meter for meter in meters)
 
     detail = client.get("/api/meters/alpha")
     assert detail.status_code == 200
     assert detail.json()["description"] == "První měřidlo"
+    assert detail.json()["color"] == "#4f9d69"
     assert "token" not in detail.json()
 
 
@@ -291,6 +295,30 @@ def test_init_db_migrates_legacy_table(tmp_path, monkeypatch):
     assert "meter" in columns
     assert "comment" in columns
     assert row == ("default", None)
+
+
+def test_config_rejects_invalid_color(tmp_path, monkeypatch):
+    path = tmp_path / "meters.json"
+    path.write_text(
+        json.dumps(
+            {
+                "meters": [
+                    {
+                        "slug": "one",
+                        "name": "One",
+                        "color": "blue",
+                        "token": "valid-token-0123456789",
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(config, "CONFIG_PATH", path)
+    config.reset_cache()
+    with pytest.raises(config.ConfigError):
+        config.load_meters()
+    config.reset_cache()
 
 
 def test_config_rejects_duplicate_tokens(tmp_path, monkeypatch):

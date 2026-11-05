@@ -28,9 +28,10 @@ METERS_CONFIG=data/meters.json DB_PATH=data/readings.db \
 - Configuration is re-read when its mtime/size changes; a valid edit needs no
   restart. Invalid configuration makes `/api/health` and data endpoints return
   `503`; startup fails if the initial file is invalid.
-- Each meter has a unique lowercase `slug`, `name`, optional `description`, and
-  a unique token of at least 16 characters. Tokens must never appear in logs,
-  `/api/meters`, or committed files.
+- Each meter has a unique lowercase `slug`, `name`, optional `description`,
+  optional hex `color` (`#rrggbb`), and a unique token of at least 16 characters.
+  The color tints the overview card and the detail page background. Tokens must
+  never appear in logs, `/api/meters`, or committed files.
 - `METERS_CONFIG`, `DB_PATH` and `RETENTION_DAYS` are read at module import.
   Tests must set them before importing `app`.
 - `.env` is optional and only carries `PORT` / `RETENTION_DAYS` / optional

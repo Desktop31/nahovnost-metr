@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import secrets
 import threading
 from dataclasses import dataclass, field
@@ -20,6 +21,7 @@ from pydantic import (
 
 CONFIG_PATH = Path(os.environ.get("METERS_CONFIG", "data/meters.json"))
 SLUG_PATTERN = r"^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$"
+COLOR_PATTERN = r"^#[0-9a-fA-F]{6}$"
 
 _lock = threading.Lock()
 _cache: tuple[tuple[int, int], tuple["Meter", ...]] | None = None
@@ -35,6 +37,7 @@ class MeterConfig(BaseModel):
     slug: str = Field(min_length=1, max_length=64, pattern=SLUG_PATTERN)
     name: str = Field(min_length=1, max_length=80)
     description: str | None = Field(default=None, max_length=240)
+    color: str | None = Field(default=None)
     token: str = Field(min_length=16, max_length=256)
 
     @field_validator("name")
@@ -52,6 +55,18 @@ class MeterConfig(BaseModel):
             return None
         value = value.strip()
         return value or None
+
+    @field_validator("color")
+    @classmethod
+    def clean_color(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        value = value.strip()
+        if not value:
+            return None
+        if not re.fullmatch(COLOR_PATTERN, value):
+            raise ValueError("color must be a hex colour like #4f9d69")
+        return value.lower()
 
     @field_validator("token")
     @classmethod
@@ -85,6 +100,7 @@ class Meter:
     slug: str
     name: str
     description: str | None
+    color: str | None
     token: str = field(repr=False)
 
     def public(self) -> dict:
@@ -92,6 +108,7 @@ class Meter:
             "slug": self.slug,
             "name": self.name,
             "description": self.description,
+            "color": self.color,
         }
 
 
@@ -161,6 +178,7 @@ def load_meters() -> tuple[Meter, ...]:
                 slug=item.slug,
                 name=item.name,
                 description=item.description,
+                color=item.color,
                 token=item.token,
             )
             for item in parsed.meters

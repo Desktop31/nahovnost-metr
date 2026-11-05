@@ -325,6 +325,10 @@
     card.href = `/m/${encodeURIComponent(meter.slug)}`;
     card.dataset.slug = meter.slug;
     card.setAttribute("aria-label", `Otevřít detail měřidla ${meter.name}`);
+    if (meter.color) {
+      card.classList.add("has-accent");
+      card.style.setProperty("--meter-color", meter.color);
+    }
 
     const head = makeNode("div", "meter-card-head");
     const heading = makeNode("div", "meter-card-heading");
@@ -611,6 +615,8 @@
   function initOverview() {
     el.detailView.hidden = true;
     el.overviewView.hidden = false;
+    document.body.classList.remove("has-meter-accent");
+    document.body.style.removeProperty("--meter-color");
     document.title = "Přehled · Nahovnost metr";
     activeRedraw = redrawOverview;
     loadOverview();
@@ -1000,6 +1006,8 @@
         : error.message || "Zkontrolujte konfiguraci měřidel.";
     el.meterTitle.textContent = "Měřidlo";
     el.meterDescription.hidden = true;
+    document.body.classList.remove("has-meter-accent");
+    document.body.style.removeProperty("--meter-color");
     document.title = "Měřidlo nenalezeno · Nahovnost metr";
     setRefresh(false, `Načtení selhalo ${timeFmt.format(new Date())}`);
   }
@@ -1045,6 +1053,13 @@
         el.meterDescription.hidden = false;
       } else {
         el.meterDescription.hidden = true;
+      }
+      if (meta.color) {
+        document.body.classList.add("has-meter-accent");
+        document.body.style.setProperty("--meter-color", meta.color);
+      } else {
+        document.body.classList.remove("has-meter-accent");
+        document.body.style.removeProperty("--meter-color");
       }
       document.title = `${meta.name} · Nahovnost metr`;
       el.detailError.hidden = true;

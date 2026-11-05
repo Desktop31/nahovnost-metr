@@ -209,6 +209,40 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+body.has-meter-accent {
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--meter-color) 4%, transparent) 0%,
+      transparent 100%
+    ),
+    radial-gradient(
+      1100px 560px at 8% -12%,
+      color-mix(in srgb, var(--meter-color) 18%, transparent),
+      transparent 65%
+    ),
+    var(--color-background);
+}
+
+body.has-meter-accent .topbar {
+  background: color-mix(in srgb, var(--meter-color) 6%, var(--color-surface));
+}
+
+.dark body.has-meter-accent {
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--meter-color) 7%, transparent) 0%,
+      transparent 100%
+    ),
+    radial-gradient(
+      1100px 560px at 8% -12%,
+      color-mix(in srgb, var(--meter-color) 22%, transparent),
+      transparent 65%
+    ),
+    var(--color-background);
+}
+
 h1,
 h2,
 h3 {
@@ -893,6 +927,58 @@ button {
 
 .meter-card:hover {
   border-color: var(--color-outline);
+}
+
+.meter-card.has-accent {
+  border-color: color-mix(
+    in srgb,
+    var(--meter-color) 34%,
+    var(--color-outline-variant)
+  );
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(
+        in srgb,
+        var(--meter-color) 10%,
+        var(--color-surface-container-lowest)
+      ) 0%,
+      var(--color-surface-container-lowest) 62%
+    );
+}
+
+.meter-card.has-accent:hover {
+  border-color: color-mix(
+    in srgb,
+    var(--meter-color) 58%,
+    var(--color-outline-variant)
+  );
+}
+
+.dark .meter-card.has-accent {
+  border-color: color-mix(
+    in srgb,
+    var(--meter-color) 42%,
+    var(--color-outline-variant)
+  );
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(
+        in srgb,
+        var(--meter-color) 17%,
+        var(--color-surface-container-lowest)
+      ) 0%,
+      var(--color-surface-container-lowest) 62%
+    );
+}
+
+.dark .meter-card.has-accent:hover {
+  border-color: color-mix(
+    in srgb,
+    var(--meter-color) 62%,
+    var(--color-outline-variant)
+  );
 }
 
 .meter-card:focus-visible {

@@ -39,11 +39,13 @@ Formát konfigurace (vzor je v `meters.example.json`):
       "slug": "sklad",
       "name": "Sklad",
       "description": "Teplota a vlhkost ve skladu",
+      "color": "#4f9d69",
       "token": "dlouhy-nahodny-token"
     },
     {
       "slug": "kotelna",
       "name": "Kotelna",
+      "color": "#d96c4f",
       "token": "jiny-dlouhy-nahodny-token"
     }
   ]
@@ -51,6 +53,8 @@ Formát konfigurace (vzor je v `meters.example.json`):
 ```
 
 - `slug` je unikátní, malými písmeny, číslicemi a pomlčkami.
+- `color` je volitelný hex odstín (`#rrggbb`) pro jemný akcent karty v přehledu
+  a pozadí detailu.
 - `token` je unikátní, alespoň 16 znaků. Token se nikdy nevrací v API.
 - Existujícím datům z původní jednoverzové verze se při migraci přiřadí
   měřidlo `default`; pokud je chcete dál vidět, nechte `default` v konfiguraci.
@@ -80,11 +84,26 @@ Token lze poslat i jako `Authorization: Bearer <token>`. Token musí patřit
 danému měřidlu. Hodnoty mimo rozsah `0.00–1.00`, nečíselné vstupy a příliš
 dlouhé komentáře API odmítne s `422`.
 
+`GET /api/meters` vrací seznam měřidel bez tokenů, včetně volitelné barvy:
+
+```json
+{
+  "meters": [
+    { "slug": "sklad", "name": "Sklad", "description": null, "color": "#4f9d69" }
+  ]
+}
+```
+
 `GET /api/meters/{slug}/readings?hours=24` vrací například:
 
 ```json
 {
-  "meter": { "slug": "sklad", "name": "Sklad", "description": null },
+  "meter": {
+    "slug": "sklad",
+    "name": "Sklad",
+    "description": null,
+    "color": "#4f9d69"
+  },
   "latest": {
     "id": 12,
     "meter": "sklad",
