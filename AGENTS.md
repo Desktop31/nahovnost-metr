@@ -72,6 +72,12 @@ METERS_CONFIG=data/meters.json DB_PATH=data/readings.db \
   height; its `mouseleave` lives on `#chart-live`, not the canvas.
 - Header logo is `app/static/logo.png` in a 40×40 slot. User-facing name is
   “Nahovnost metr”.
+- The topbar **+** form posts a reading. On `/` it has a meter selector; on
+  `/m/{slug}` the meter is fixed. The token is stored per meter under the
+  `nahovnost-token:<slug>` localStorage key after a successful POST; a stored
+  token disables the token field and exposes the delete-token button. Keep that
+  behavior when editing the form, and keep the mobile panel positioning in
+  `positionAddPanel` (fixed within the viewport).
 - API examples are duplicated in `README.md` and the topbar help panel
   (`#api-help` in `index.html`); update both for API changes.
 - UI changes should be checked at 320/390/1440 px, in both themes, with no

@@ -49,10 +49,30 @@
     chart: document.getElementById("chart"),
     chartLive: document.getElementById("chart-live"),
     themeToggle: document.getElementById("theme-toggle"),
+    addToggle: document.getElementById("add-toggle"),
+    addPanel: document.getElementById("add-panel"),
+    addClose: document.getElementById("add-close"),
+    addCancel: document.getElementById("add-cancel"),
+    addForm: document.getElementById("add-form"),
+    addMeter: document.getElementById("add-meter"),
+    addValueRange: document.getElementById("add-value-range"),
+    addValueNumber: document.getElementById("add-value-number"),
+    addComment: document.getElementById("add-comment"),
+    addToken: document.getElementById("add-token"),
+    addTokenClear: document.getElementById("add-token-clear"),
+    addStatus: document.getElementById("add-status"),
+    addSubmit: document.getElementById("add-submit"),
     helpToggle: document.getElementById("help-toggle"),
     helpPanel: document.getElementById("api-help"),
     helpClose: document.getElementById("help-close"),
   };
+
+  const TOKEN_PREFIX = "nahovnost-token:";
+
+  let knownMeters = [];
+  let currentMeterMeta = null;
+  let lastSelectedMeter = null;
+  let refreshView = async () => {};
 
   const state = {
     points: [],
@@ -261,6 +281,7 @@
   /* ---------------------------------------------------------------- help */
 
   function openHelp() {
+    closeAddPanel(false);
     el.helpPanel.hidden = false;
     el.helpToggle.setAttribute("aria-expanded", "true");
     el.helpClose.focus();
@@ -291,7 +312,303 @@
   });
 
   document.addEventListener("keydown", (event) => {
-    if (event.key === "Escape" && !el.helpPanel.hidden) closeHelp();
+    if (event.key !== "Escape") return;
+    if (!el.helpPanel.hidden) closeHelp();
+    else if (!el.addPanel.hidden) closeAddPanel();
+  });
+
+  /* -------------------------------------------------------------- add form */
+
+  function tokenKey(slug) {
+    return `${TOKEN_PREFIX}${slug}`;
+  }
+
+  function readStoredToken(slug) {
+    if (!slug) return "";
+    try {
+      return localStorage.getItem(tokenKey(slug)) || "";
+    } catch (error) {
+      return "";
+    }
+  }
+
+  function writeStoredToken(slug, token) {
+    try {
+      localStorage.setItem(tokenKey(slug), token);
+    } catch (error) {
+      /* keep the field editable if storage is unavailable */
+    }
+  }
+
+  function removeStoredToken(slug) {
+    try {
+      localStorage.removeItem(tokenKey(slug));
+    } catch (error) {
+      /* nothing to do */
+    }
+  }
+
+  function setAddStatus(text, type) {
+    el.addStatus.textContent = text || "";
+    el.addStatus.hidden = !text;
+    el.addStatus.classList.toggle("is-error", type === "error");
+    el.addStatus.classList.toggle("is-success", type === "success");
+  }
+
+  function syncAddTokenField(clearManual = false) {
+    const slug = el.addMeter.value;
+    const stored = readStoredToken(slug);
+    if (clearManual || stored) el.addToken.value = "";
+    el.addToken.disabled = !slug || Boolean(stored);
+    el.addToken.placeholder = stored
+      ? "Token je uložen v prohlížeči"
+      : "Vložte token měřidla";
+    el.addTokenClear.hidden = !stored;
+    el.addTokenClear.disabled = !slug;
+    el.addSubmit.disabled = !slug;
+  }
+
+  async function getAddMeters() {
+    if (isDetail && currentMeterMeta) return [currentMeterMeta];
+    if (!isDetail && knownMeters.length) return knownMeters;
+    const list = await fetchJSON("/api/meters");
+    knownMeters = Array.isArray(list.meters) ? list.meters : [];
+    if (isDetail) {
+      return knownMeters.filter((meter) => meter.slug === currentSlug);
+    }
+    return knownMeters;
+  }
+
+  async function populateAddMeters() {
+    el.addMeter.replaceChildren();
+    el.addMeter.disabled = false;
+    el.addSubmit.disabled = true;
+
+    let meters;
+    try {
+      meters = await getAddMeters();
+    } catch (error) {
+      setAddStatus("Měřidla se nepodařilo načíst.", "error");
+      el.addMeter.disabled = true;
+      syncAddTokenField(true);
+      return;
+    }
+
+    if (isDetail) {
+      const meter = meters[0] || {
+        slug: currentSlug,
+        name: currentMeterMeta ? currentMeterMeta.name : currentSlug,
+      };
+      el.addMeter.append(
+        new Option(meter.name || meter.slug, meter.slug)
+      );
+      el.addMeter.value = currentSlug;
+      el.addMeter.disabled = true;
+    } else if (!meters.length) {
+      el.addMeter.append(new Option("Žádná měřidla", ""));
+      el.addMeter.disabled = true;
+      setAddStatus("Nejsou dostupná žádná měřidla.", "error");
+    } else {
+      meters.forEach((meter) => {
+        el.addMeter.append(new Option(meter.name || meter.slug, meter.slug));
+      });
+      const preferred =
+        meters.find((meter) => meter.slug === lastSelectedMeter)?.slug ||
+        meters[0].slug;
+      el.addMeter.value = preferred;
+      lastSelectedMeter = preferred;
+    }
+
+    syncAddTokenField(true);
+    if (isDetail) {
+      setAddStatus("");
+    }
+  }
+
+  function openAddPanel() {
+    closeHelp(false);
+    setAddStatus("");
+    el.addPanel.hidden = false;
+    el.addToggle.setAttribute("aria-expanded", "true");
+    positionAddPanel();
+    populateAddMeters().then(() => {
+      if (el.addPanel.hidden) return;
+      positionAddPanel();
+      if (el.addMeter.disabled) el.addValueRange.focus();
+      else el.addMeter.focus();
+    });
+  }
+
+  function closeAddPanel(returnFocus = true) {
+    if (el.addPanel.hidden) return;
+    const focusInside = el.addPanel.contains(document.activeElement);
+    el.addPanel.hidden = true;
+    el.addToggle.setAttribute("aria-expanded", "false");
+    if (returnFocus || focusInside) el.addToggle.focus();
+  }
+
+  function positionAddPanel() {
+    if (el.addPanel.hidden) return;
+    const style = el.addPanel.style;
+    if (window.innerWidth > 640) {
+      style.removeProperty("position");
+      style.removeProperty("top");
+      style.removeProperty("left");
+      style.removeProperty("right");
+      style.removeProperty("width");
+      style.removeProperty("max-width");
+      style.removeProperty("max-height");
+      return;
+    }
+    const topbarBottom = document
+      .querySelector(".topbar")
+      .getBoundingClientRect().bottom;
+    const top = Math.max(16, topbarBottom + 8);
+    style.position = "fixed";
+    style.top = `${Math.round(top)}px`;
+    style.left = "1rem";
+    style.right = "1rem";
+    style.width = "auto";
+    style.maxWidth = "none";
+    style.maxHeight = `${Math.max(
+      240,
+      Math.round(window.innerHeight - top - 16)
+    )}px`;
+  }
+
+  el.addToggle.addEventListener("click", () => {
+    if (el.addPanel.hidden) openAddPanel();
+    else closeAddPanel();
+  });
+  el.addClose.addEventListener("click", () => closeAddPanel());
+  el.addCancel.addEventListener("click", () => closeAddPanel());
+
+  window.addEventListener("resize", () => {
+    if (!el.addPanel.hidden) positionAddPanel();
+  });
+
+  el.addMeter.addEventListener("change", () => {
+    lastSelectedMeter = el.addMeter.value;
+    syncAddTokenField(true);
+    setAddStatus("");
+  });
+
+  el.addTokenClear.addEventListener("click", () => {
+    const slug = el.addMeter.value;
+    if (!slug) return;
+    removeStoredToken(slug);
+    syncAddTokenField(true);
+    setAddStatus("Uložený token byl smazán.");
+    el.addToken.focus();
+  });
+
+  el.addValueRange.addEventListener("input", () => {
+    el.addValueNumber.value = Number(el.addValueRange.value).toFixed(2);
+  });
+
+  el.addValueNumber.addEventListener("input", () => {
+    const value = Number(el.addValueNumber.value.replace(",", "."));
+    if (Number.isFinite(value) && value >= 0 && value <= 1) {
+      el.addValueRange.value = String(value);
+    }
+  });
+
+  el.addForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const slug = el.addMeter.value;
+    const value = Number(el.addValueNumber.value.replace(",", "."));
+    const comment = el.addComment.value.trim();
+    const stored = readStoredToken(slug);
+    const token = stored || el.addToken.value.trim();
+
+    if (!slug) {
+      setAddStatus("Vyberte měřidlo.", "error");
+      return;
+    }
+    if (!Number.isFinite(value) || value < 0 || value > 1) {
+      setAddStatus("Hodnota musí být v rozsahu 0.00 až 1.00.", "error");
+      el.addValueNumber.focus();
+      return;
+    }
+    if (!token) {
+      setAddStatus("Vložte token měřidla.", "error");
+      el.addToken.focus();
+      return;
+    }
+
+    setAddStatus("");
+    el.addSubmit.disabled = true;
+    el.addSubmit.textContent = "Ukládám…";
+
+    try {
+      const response = await fetch(
+        `/api/meters/${encodeURIComponent(slug)}/readings`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-API-Token": token,
+          },
+          body: JSON.stringify({
+            value,
+            ...(comment ? { comment } : {}),
+          }),
+        }
+      );
+
+      if (!response.ok) {
+        let detail = "";
+        try {
+          const body = await response.json();
+          if (typeof body.detail === "string") detail = body.detail;
+        } catch (error) {
+          /* use the generic message */
+        }
+        if (response.status === 401) {
+          setAddStatus(
+            stored
+              ? "Uložený token je neplatný. Smažte ho a vložte nový."
+              : "Token je neplatný.",
+            "error"
+          );
+        } else if (response.status === 422) {
+          setAddStatus(
+            "Hodnotu nebo komentář server odmítl. Zkontrolujte je.",
+            "error"
+          );
+        } else {
+          setAddStatus(
+            detail || `Uložení selhalo (HTTP ${response.status}).`,
+            "error"
+          );
+        }
+        return;
+      }
+
+      if (!stored) {
+        writeStoredToken(slug, token);
+        syncAddTokenField(true);
+      }
+      el.addComment.value = "";
+      setAddStatus("Hodnota byla uložena.", "success");
+      await refreshView();
+    } catch (error) {
+      console.error("Uložení hodnoty selhalo:", error);
+      setAddStatus("Uložení se nepodařilo. Zkuste to znovu.", "error");
+    } finally {
+      el.addSubmit.textContent = "Uložit hodnotu";
+      syncAddTokenField();
+    }
+  });
+
+  document.addEventListener("click", (event) => {
+    if (
+      !el.addPanel.hidden &&
+      event.target instanceof Element &&
+      !event.target.closest(".add")
+    ) {
+      closeAddPanel(false);
+    }
   });
 
   /* --------------------------------------------------------- overview UI */
@@ -573,6 +890,7 @@
     try {
       const list = await fetchJSON("/api/meters");
       const meters = Array.isArray(list.meters) ? list.meters : [];
+      knownMeters = meters;
       const results = await Promise.all(
         meters.map(async (meter) => {
           try {
@@ -615,6 +933,8 @@
   function initOverview() {
     el.detailView.hidden = true;
     el.overviewView.hidden = false;
+    currentMeterMeta = null;
+    refreshView = loadOverview;
     document.body.classList.remove("has-meter-accent");
     document.body.style.removeProperty("--meter-color");
     document.title = "Přehled · Nahovnost metr";
@@ -1006,6 +1326,7 @@
         : error.message || "Zkontrolujte konfiguraci měřidel.";
     el.meterTitle.textContent = "Měřidlo";
     el.meterDescription.hidden = true;
+    currentMeterMeta = null;
     document.body.classList.remove("has-meter-accent");
     document.body.style.removeProperty("--meter-color");
     document.title = "Měřidlo nenalezeno · Nahovnost metr";
@@ -1015,6 +1336,7 @@
   async function initDetail() {
     el.overviewView.hidden = true;
     el.detailView.hidden = false;
+    refreshView = loadDetail;
     activeRedraw = drawChart;
 
     new ResizeObserver(resize).observe(el.chart);
@@ -1047,6 +1369,8 @@
       const meta = await fetchJSON(
         `/api/meters/${encodeURIComponent(currentSlug)}`
       );
+      currentMeterMeta = meta;
+      knownMeters = [meta];
       el.meterTitle.textContent = meta.name;
       if (meta.description) {
         el.meterDescription.textContent = meta.description;

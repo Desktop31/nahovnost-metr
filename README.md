@@ -129,6 +129,17 @@ vzestupně, včetně komentářů.
 Časy jsou UNIX timestampy v UTC (sekundy). Při hustém sběru se body pro graf
 zprůměrují na maximálně 1500 bodů, statistika vždy počítá ze všech vzorků.
 
+## Přidání hodnoty v dashboardu
+
+Tlačítko **+** v horním baru otevře formulář pro zápis hodnoty. Na přehledu
+vyberete měřidlo, na detailu je pevně dané. Formulář obsahuje slider s ručním
+zápisem čísla, volitelný komentář a token měřidla.
+
+Token se po úspěšném zápisu uloží do `localStorage` prohlížeče pod klíčem
+`nahovnost-token:<slug>`. Při dalším otevření je pole tokenu zakázané a vedle
+něj je tlačítko **Smazat uložený token**. Token se neposílá do prohlížeče ze
+serveru; uživatel ho zadává sám.
+
 ## Konfigurace
 
 | Proměnná         | Výchozí             | Význam                                      |
@@ -196,6 +207,8 @@ docker-compose.yml
 - Komentáře jsou součástí veřejných dat; neukládejte do nich citlivé údaje.
 - `meters.json` obsahuje tajné tokeny. Necommitujte ho a v produkci omezte
   přístup k volume. Aplikace ho při vytvoření nastaví na práva `600`.
+- Tokeny zadané ve formuláři se ukládají do `localStorage` prohlížeče. Na
+  sdíleném počítači je proto po použití smažte tlačítkem v formuláři.
 - Tokeny se porovnávají v konstantním čase. Pro produkci použijte dlouhé náhodné
   tokeny a aplikaci nasaďte za HTTPS reverse proxy (Caddy, Nginx, Traefik).
 - Aplikace nemá rate limiting; při veřejném vystavení zvažte limit na proxy.

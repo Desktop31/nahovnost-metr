@@ -48,6 +48,148 @@
           >
             Tmavý režim
           </button>
+          <div class="add">
+            <button
+              type="button"
+              class="btn btn--outline btn--icon"
+              id="add-toggle"
+              aria-expanded="false"
+              aria-controls="add-panel"
+              aria-label="Přidat hodnotu"
+              title="Přidat hodnotu"
+            >
+              <svg
+                viewBox="0 0 24 24"
+                width="24"
+                height="24"
+                fill="currentColor"
+                aria-hidden="true"
+              >
+                <path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z" />
+              </svg>
+            </button>
+
+            <section
+              class="add-panel"
+              id="add-panel"
+              role="dialog"
+              aria-modal="false"
+              aria-labelledby="add-title"
+              hidden
+            >
+              <div class="add-head">
+                <h2 id="add-title">Přidat hodnotu</h2>
+                <button
+                  type="button"
+                  class="btn btn--outline btn--icon"
+                  id="add-close"
+                  aria-label="Zavřít formulář"
+                >
+                  <svg
+                    viewBox="0 0 24 24"
+                    width="24"
+                    height="24"
+                    fill="currentColor"
+                    aria-hidden="true"
+                  >
+                    <path
+                      d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"
+                    />
+                  </svg>
+                </button>
+              </div>
+
+              <form id="add-form" novalidate>
+                <div class="form-field" id="add-meter-field">
+                  <label for="add-meter">Měřidlo</label>
+                  <select id="add-meter" class="input select"></select>
+                </div>
+
+                <fieldset class="form-field">
+                  <legend>Hodnota</legend>
+                  <div class="value-inputs">
+                    <input
+                      type="range"
+                      class="range"
+                      id="add-value-range"
+                      min="0"
+                      max="1"
+                      step="0.01"
+                      value="0.5"
+                      aria-label="Hodnota posuvníkem"
+                    />
+                    <input
+                      type="number"
+                      class="input value-number"
+                      id="add-value-number"
+                      min="0"
+                      max="1"
+                      step="0.01"
+                      value="0.50"
+                      inputmode="decimal"
+                      aria-label="Hodnota ručně"
+                    />
+                  </div>
+                  <p class="form-help">0.00 nejlepší · 1.00 nejhorší</p>
+                </fieldset>
+
+                <div class="form-field">
+                  <label for="add-comment">
+                    Komentář <span class="optional">(volitelný)</span>
+                  </label>
+                  <textarea
+                    class="input textarea"
+                    id="add-comment"
+                    rows="3"
+                    maxlength="500"
+                    placeholder="Např. ranní kontrola"
+                  ></textarea>
+                </div>
+
+                <div class="form-field">
+                  <label for="add-token">Token</label>
+                  <input
+                    type="password"
+                    class="input"
+                    id="add-token"
+                    autocomplete="off"
+                    spellcheck="false"
+                    placeholder="Vložte token měřidla"
+                  />
+                  <button
+                    type="button"
+                    class="btn btn--outline token-clear"
+                    id="add-token-clear"
+                    hidden
+                  >
+                    Smazat uložený token
+                  </button>
+                  <p class="form-help">
+                    Token se po úspěšném uložení zapamatuje v tomto prohlížeči.
+                  </p>
+                </div>
+
+                <p class="form-status" id="add-status" role="status" hidden></p>
+
+                <div class="form-actions">
+                  <button
+                    type="button"
+                    class="btn btn--outline"
+                    id="add-cancel"
+                  >
+                    Zavřít
+                  </button>
+                  <button
+                    type="submit"
+                    class="btn btn--primary"
+                    id="add-submit"
+                  >
+                    Uložit hodnotu
+                  </button>
+                </div>
+              </form>
+            </section>
+          </div>
           <div class="help">
             <button
               type="button"
